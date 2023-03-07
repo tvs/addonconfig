@@ -1,0 +1,12 @@
+apiVersion: addon.tvs.io/v1alpha1
+kind: AddonConfigDefinition
+metadata:
+  labels:
+    app.kubernetes.io/name: addonconfigdefinition
+    app.kubernetes.io/instance: addonconfigdefinition-sample
+    app.kubernetes.io/part-of: addonconfig
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: addonconfig
+  name: addonconfigdefinition-sample
+spec:
+  # TODO(user): Add fields here

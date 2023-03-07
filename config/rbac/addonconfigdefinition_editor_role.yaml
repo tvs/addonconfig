@@ -1,0 +1,31 @@
+# permissions for end users to edit addonconfigdefinitions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: addonconfigdefinition-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: addonconfig
+    app.kubernetes.io/part-of: addonconfig
+    app.kubernetes.io/managed-by: kustomize
+  name: addonconfigdefinition-editor-role
+rules:
+- apiGroups:
+  - addon.tvs.io
+  resources:
+  - addonconfigdefinitions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - addon.tvs.io
+  resources:
+  - addonconfigdefinitions/status
+  verbs:
+  - get
