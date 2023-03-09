@@ -1,4 +1,4 @@
-module tvs.io/addonconfig
+module github.com/tvs/addonconfig
 
 go 1.19
 

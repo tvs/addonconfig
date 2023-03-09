@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -26,10 +27,16 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	addonv1 "tvs.io/addonconfig/api/v1alpha1"
+	addonv1 "github.com/tvs/addonconfig/api/v1alpha1"
+	"github.com/tvs/addonconfig/util"
+	"github.com/tvs/addonconfig/util/conditions"
+	"github.com/tvs/addonconfig/util/patch"
 )
 
 // AddonConfigReconciler reconciles a AddonConfig object
@@ -48,10 +55,7 @@ type AddonConfigReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
-func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
-	log.Info("Starting AddonConfig reconciliation")
-
+func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	addonConfig := &addonv1.AddonConfig{}
 	if err := r.Client.Get(ctx, req.NamespacedName, addonConfig); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -59,16 +63,51 @@ func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	patchHelper, err := patch.NewHelper(addonConfig, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Always attempt to patch the AddonConfig status after each reconciliation
+	defer func() {
+		patchOpts := []patch.Option{}
+		if reterr == nil {
+			patchOpts = append(patchOpts, patch.WithStatusObservedGeneration{})
+		}
+
+		if err := patchAddonConfig(ctx, patchHelper, addonConfig, patchOpts...); err != nil {
+			reterr = kerrors.NewAggregate([]error{reterr, err})
+		}
+	}()
+
+	return r.reconcile(ctx, addonConfig)
+}
+
+func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addonv1.AddonConfig) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	log.Info("Starting AddonConfig reconciliation")
+
+	// TODO(tvs): Better validation; right now the API server will accept invalid
+	// AddonConfigDefinitions (stick `required` under `properties` for example`)
+	//   E0309 00:14:47.141174       1 reflector.go:140] pkg/mod/k8s.io/client-go@v0.26.0/tools/cache/reflector.go:169: Failed to watch *v1alpha1.AddonConfigDefinition: failed to list *v1alpha1.AddonConfigDefinition: json: cannot unmarshal array into Go struct field JSONSchemaProps.items.spec.schema.openAPIV3Schema.properties of type v1.JSONSchemaProps
+	// Validating webhook would probably do the trick...
 	addonConfigDefinition := &addonv1.AddonConfigDefinition{}
 	acdKey := client.ObjectKey{Namespace: "", Name: addonConfig.Spec.Type}
 	if err := r.Client.Get(ctx, acdKey, addonConfigDefinition); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("Could not find AddonConfigDefinition for AddonConfig, requeuing", "refName", acdKey.Name)
-			// TODO(tvs): Set condition, but it's not an error we just need to requeue
-			// until it shows up
+
+			conditions.MarkFalse(addonConfig,
+				addonv1.ValidSchemaCondition,
+				addonv1.SchemaNotFound,
+				addonv1.ConditionSeverityError,
+				addonv1.SchemaNotFoundMessage, acdKey.Name)
+
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 	}
+
+	conditions.MarkTrue(addonConfig, addonv1.ValidSchemaCondition)
 
 	// Nothing to validate against so let's get out of here
 	if addonConfigDefinition.Spec.Schema == nil {
@@ -87,13 +126,28 @@ func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if errs := validation.ValidateCustomResource(nil, addonConfig.Spec.Values, validator); len(errs) > 0 {
-		log.Info("Unable to validate AddonConfig against the AddonConfigDefinition's schema", "errs", errs)
-		// TODO(tvs): Set a condition with the errors, but it's not an error, we just need to requeue
+		log.Info("Unable to validate AddonConfig against the AddonConfigDefinition's schema")
+		addonConfig.Status.FieldErrors = make(map[string]addonv1.FieldError, len(errs))
+		for _, err := range errs {
+			addonConfig.Status.FieldErrors.SetError(err)
+		}
+
+		conditions.MarkFalse(addonConfig,
+			addonv1.ValidConfigCondition,
+			addonv1.InvalidConfig,
+			addonv1.ConditionSeverityError,
+			addonv1.InvalidConfigMessage)
+
+		// This isn't really an error, so we just need to requeue
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	// Explicitly reset the FieldErrors if nothing came up so we don't leave
+	// stale data
+	addonConfig.Status.FieldErrors = make(map[string]addonv1.FieldError, 0)
+
 	log.Info("Validated AddonConfig against AddonConfigDefinition successfully", "addonConfig.Name", addonConfig.Name, "addonConfig.Namespace", addonConfig.Namespace, "addonConfigDefinition.Name", addonConfigDefinition.Name)
-	// TODO(tvs): Set condition and ready status
+	conditions.MarkTrue(addonConfig, addonv1.ValidConfigCondition)
 
 	return ctrl.Result{}, nil
 }
@@ -102,5 +156,48 @@ func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *AddonConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&addonv1.AddonConfig{}).
+		Watches(
+			&source.Kind{Type: &addonv1.AddonConfigDefinition{}},
+			handler.EnqueueRequestsFromMapFunc(r.addonConfigDefinitionToAddonConfig),
+		).
 		Complete(r)
+}
+
+func (r *AddonConfigReconciler) addonConfigDefinitionToAddonConfig(o client.Object) []ctrl.Request {
+	d, ok := o.(*addonv1.AddonConfigDefinition)
+	if !ok {
+		panic(fmt.Sprintf("Expected an AddonConfigDefinition but got a %T", o))
+	}
+
+	configs, err := util.GetAddonConfigsByType(context.TODO(), r.Client, d.Name)
+	if err != nil {
+		return nil
+	}
+
+	request := make([]ctrl.Request, 0, len(configs))
+	for i := range configs {
+		request = append(request, ctrl.Request{
+			NamespacedName: util.ObjectKey(&configs[i]),
+		})
+	}
+	return request
+}
+
+func patchAddonConfig(ctx context.Context, patchHelper *patch.Helper, addonConfig *addonv1.AddonConfig, options ...patch.Option) error {
+
+	conditions.SetSummary(addonConfig,
+		conditions.WithConditions(
+			addonv1.ValidSchemaCondition,
+			addonv1.ValidConfigCondition,
+		),
+	)
+
+	options = append(options,
+		patch.WithOwnedConditions{Conditions: []addonv1.ConditionType{
+			addonv1.ReadyCondition,
+			addonv1.ValidSchemaCondition,
+			addonv1.ValidConfigCondition,
+		}},
+	)
+	return patchHelper.Patch(ctx, addonConfig, options...)
 }

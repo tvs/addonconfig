@@ -1,0 +1,69 @@
+apiVersion: addon.tvs.io/v1alpha1
+kind: AddonConfigDefinition
+metadata:
+  name: antrea-changed
+spec:
+  schema:
+    openAPIV3Schema:
+      type: object
+      properties:
+        foo:
+          type: string
+          pattern: ^[a-z]{3,}-[0-9]{3,}$
+        trafficEncapMode:
+          type: string
+        noSNAT:
+         type: boolean
+        disableUdpTunnelOffload:
+          type: boolean
+        defaultMTU:
+          type: string
+        tlsCipherSuites:
+          type: string
+        featureGates:
+          type: object
+          properties:
+            AntreaProxy:
+              type: boolean
+              default: true
+            EndpointSlice:
+              type: boolean
+              default: false
+            AntreaPolicy:
+              type: boolean
+              default: true
+            FlowExporter:
+              type: boolean
+              default: false
+            Egress:
+              type: boolean
+              default: false
+            NodePortLocal:
+              type: boolean
+              default: false
+            AntreaTraceflow:
+              type: boolean
+              default: true
+            NetworkPolicyStats:
+              type: boolean
+              default: false
+      required:
+      - foo
+  template: |
+    infraProvider: {{.default.infrastructure}}
+    antrea:
+      config:
+        trafficEncapMode: {{.values.trafficEncapMode}}
+        noSNAT: {{.values.noSNAT}}
+        disableUdpTunnelOffload: {{.values.disableUdpTunnelOffload}}
+        defaultMTU: {{.values.defaultMTU}}
+        tlsCipherSuites: {{.values.tlsCipherSuites}}
+        featureGates:
+          AntreaProxy: {{.values.featureGates.AntreaProxy}}
+          EndpointSlice: {{.values.featureGates.EndpointSlice}}
+          AntreaPolicy: {{.values.featureGates.AntreaPolicy}}
+          FlowExporter: {{.values.featureGates.FlowExporter}}
+          Egress: {{.values.featureGates.Egress}}
+          NodePortLocal: {{.values.featureGates.NodePortLocal}}
+          AntreaTraceflow: {{.values.featureGates.AntreaTraceflow}}
+          NetworkPolicyStats: {{.values.featureGates.NetworkPolicyStats}}

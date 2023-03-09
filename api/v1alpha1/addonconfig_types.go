@@ -33,9 +33,38 @@ type AddonConfigSpec struct {
 
 // AddonConfigStatus defines the observed state of AddonConfig
 type AddonConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Conditions define the current state of the AddonConfig
+	// +optional
+	Conditions Conditions `json:"conditions,omitempty" protobuf:"bytes,1,opt,name=conditions"`
+
+	// FieldErrors define any existing schema validation errors in the AddonConfig
+	// +optional
+	FieldErrors FieldErrors `json:"fieldErrors,omitempty" protobuf:"bytes,2,opt,name=fieldErrors"`
 }
+
+const (
+	// ReadyCondition defines the Ready condition type that summarizes the
+	// operational state of an Addon object
+	ReadyCondition ConditionType = "Ready"
+
+	// ValidSchemaCondition documents whether a schema exists and is valid. Must
+	// be true before validating the AddonConfig against it
+	ValidSchemaCondition ConditionType = "ValidSchema"
+
+	// ValidConfigCondition documents whether the AddonConfig could be validated
+	// against the schema
+	ValidConfigCondition ConditionType = "ValidConfig"
+)
+
+const (
+	SchemaNotFound string = "SchemaNotFound"
+
+	SchemaNotFoundMessage string = "Unable to find schema by name %q"
+
+	InvalidConfig string = "InvalidConfiguration"
+
+	InvalidConfigMessage string = "Invalid configuration; see .status.fieldErrors for more information"
+)
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
@@ -47,6 +76,14 @@ type AddonConfig struct {
 
 	Spec   AddonConfigSpec   `json:"spec,omitempty"`
 	Status AddonConfigStatus `json:"status,omitempty"`
+}
+
+func (a *AddonConfig) GetConditions() Conditions {
+	return a.Status.Conditions
+}
+
+func (a *AddonConfig) SetConditions(conditions Conditions) {
+	a.Status.Conditions = conditions
 }
 
 //+kubebuilder:object:root=true

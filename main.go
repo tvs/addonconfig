@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	addonv1alpha1 "tvs.io/addonconfig/api/v1alpha1"
-	"tvs.io/addonconfig/controllers"
+	addonv1alpha1 "github.com/tvs/addonconfig/api/v1alpha1"
+	"github.com/tvs/addonconfig/controllers"
 	//+kubebuilder:scaffold:imports
 )
 

@@ -6,7 +6,7 @@ domain: tvs.io
 layout:
 - go.kubebuilder.io/v3
 projectName: addonconfig
-repo: tvs.io/addonconfig
+repo: github.com/tvs/addonconfig
 resources:
 - api:
     crdVersion: v1
@@ -15,7 +15,7 @@ resources:
   domain: tvs.io
   group: addon
   kind: AddonConfig
-  path: tvs.io/addonconfig/api/v1alpha1
+  path: github.com/tvs/addonconfig/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -23,6 +23,6 @@ resources:
   domain: tvs.io
   group: addon
   kind: AddonConfigDefinition
-  path: tvs.io/addonconfig/api/v1alpha1
+  path: github.com/tvs/addonconfig/api/v1alpha1
   version: v1alpha1
 version: "3"
