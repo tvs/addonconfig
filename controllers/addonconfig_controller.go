@@ -75,6 +75,11 @@ func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			patchOpts = append(patchOpts, patch.WithStatusObservedGeneration{})
 		}
 
+		// TODO(tvs): Add ObservedGeneration that records the version of the
+		// AddonConfigDefinition that we validated against. Allows us to make sure
+		// we're waiting for the controller to reconcile again when the AddonConfig
+		// is pointed at a new ACD
+
 		if err := patchAddonConfig(ctx, patchHelper, addonConfig, patchOpts...); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
@@ -108,6 +113,8 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 	}
 
 	conditions.MarkTrue(addonConfig, addonv1.ValidSchemaCondition)
+	// Manually updated the last observed generation of the schema
+	addonConfig.Status.ObservedSchemaGeneration = addonConfigDefinition.GetGeneration()
 
 	// Nothing to validate against so let's get out of here
 	if addonConfigDefinition.Spec.Schema == nil {

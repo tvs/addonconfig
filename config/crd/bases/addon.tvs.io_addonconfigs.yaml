@@ -109,6 +109,16 @@ spec:
                 description: FieldErrors define any existing schema validation errors
                   in the AddonConfig
                 type: object
+              observedGeneration:
+                description: ObservedGeneration is the latest generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              observedSchemaGeneration:
+                description: ObservedSchemaGeneration is the latest generation of
+                  the schema observed by the controller
+                format: int64
+                type: integer
             type: object
         type: object
     served: true

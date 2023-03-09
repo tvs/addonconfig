@@ -40,6 +40,15 @@ type AddonConfigStatus struct {
 	// FieldErrors define any existing schema validation errors in the AddonConfig
 	// +optional
 	FieldErrors FieldErrors `json:"fieldErrors,omitempty" protobuf:"bytes,2,opt,name=fieldErrors"`
+
+	// ObservedGeneration is the latest generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty" protobuf:"bytes,3,opt,name=observedGeneration"`
+
+	// ObservedSchemaGeneration is the latest generation of the schema observed
+	// by the controller
+	// +optional
+	ObservedSchemaGeneration int64 `json:"observedSchemaGeneration,omitempty" protobuf:"bytes,4,opt,name=observedSchemaGeneration"`
 }
 
 const (
