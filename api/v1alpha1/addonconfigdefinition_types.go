@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -28,7 +28,7 @@ type AddonConfigDefinitionSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Type="object"
 	// +kubebuilder:validation:Schemaless
-	Schema *apiextensions.CustomResourceValidation `json:"schema,omitempty" protobuf:"bytes,1,opt,name=schema"`
+	Schema *apiextensionsv1.CustomResourceValidation `json:"schema,omitempty" protobuf:"bytes,1,opt,name=schema"`
 
 	// template describes the template used when marshalling the schema into an add-on usable format
 	Template string `json:"template" protobuf:"bytes,2,opt,name=template"`

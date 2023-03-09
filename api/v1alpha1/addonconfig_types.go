@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -28,7 +28,7 @@ type AddonConfigSpec struct {
 
 	// Values describes the fields to be validated and marshalled with the AddonConfigDefinition defined in type
 	// +optional
-	Values apiextensions.JSON `json:"values,omitempty" protobuf:"bytes,2,opt,name=values"`
+	Values apiextensionsv1.JSON `json:"values,omitempty" protobuf:"bytes,2,opt,name=values"`
 }
 
 // AddonConfigStatus defines the observed state of AddonConfig
@@ -63,16 +63,19 @@ const (
 	// ValidConfigCondition documents whether the AddonConfig could be validated
 	// against the schema
 	ValidConfigCondition ConditionType = "ValidConfig"
+
+	// DefaultingCompleteCondition documents whether the AddonConfig has had
+	// missing defaulted values make explicit
+	DefaultingCompleteCondition ConditionType = "DefaultingComplete"
 )
 
 const (
-	SchemaNotFound string = "SchemaNotFound"
-
-	SchemaNotFoundMessage string = "Unable to find schema by name %q"
-
-	InvalidConfig string = "InvalidConfiguration"
-
-	InvalidConfigMessage string = "Invalid configuration; see .status.fieldErrors for more information"
+	SchemaNotFound                 string = "SchemaNotFound"
+	SchemaNotFoundMessage          string = "Unable to find schema by name %q"
+	InvalidConfig                  string = "InvalidConfiguration"
+	InvalidConfigMessage           string = "Invalid configuration; see .status.fieldErrors for more information"
+	DefaultingInternalError        string = "DefaultingInternalError"
+	DefaultingInternalErrorMessage string = "Unable to render defaults due to an internal error"
 )
 
 //+kubebuilder:object:root=true
