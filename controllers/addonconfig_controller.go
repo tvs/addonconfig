@@ -75,11 +75,6 @@ func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			patchOpts = append(patchOpts, patch.WithStatusObservedGeneration{})
 		}
 
-		// TODO(tvs): Add ObservedGeneration that records the version of the
-		// AddonConfigDefinition that we validated against. Allows us to make sure
-		// we're waiting for the controller to reconcile again when the AddonConfig
-		// is pointed at a new ACD
-
 		if err := patchAddonConfig(ctx, patchHelper, addonConfig, patchOpts...); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
