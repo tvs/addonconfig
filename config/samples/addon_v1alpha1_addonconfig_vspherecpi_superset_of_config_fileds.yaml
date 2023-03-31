@@ -1,0 +1,50 @@
+apiVersion: addon.tvs.io/v1alpha1
+kind: AddonConfig
+metadata:
+  name: vspherecpi-config-superset
+spec:
+  type: vspherecpi
+  values:
+    antreaNSXPodRoutingEnabled: false
+    mode: vsphereCPISuperset
+    tlsThumbprint: ""
+    vmNetwork:
+      excludeExternalSubnetCidr: 10.92.162.230/32
+      excludeInternalSubnetCidr: 10.92.162.230/32
+    insecure: false
+    nsxt:
+      podRoutingEnabled: false
+      routes:
+        routerPath: ""
+        clusterCidr: 1.2.3.4
+      username: ""
+      password: ""
+      host: ""
+      insecure: false
+      remoteAuthEnabled: false
+      vmcAccessToken: ""
+      vmcAuthHost: ""
+      clientCertKeyData: ""
+      clientCertData: ""
+      rootCAData: ""
+      secretName: ""
+      secretNamespace: ""
+    cloudProviderExtraArgs:
+      tls-cipher-suites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    server: 10.92.162.108
+    datacenter: /dc0
+    username: administrator@vsphere.local
+    password: UIZCIv7+eP6vzcj_
+    region: ""
+    zone: ""
+    insecureFlag: true
+    ipFamily: ""
+    vmInternalNetwork: ""
+    vmExternalNetwork: ""
+    vmExcludeInternalNetworkSubnetCidr: 10.92.162.230/32
+    vmExcludeExternalNetworkSubnetCidr: 10.92.162.230/32
+    http_proxy: ""
+    https_proxy: ""
+    no_proxy: ""
+
+

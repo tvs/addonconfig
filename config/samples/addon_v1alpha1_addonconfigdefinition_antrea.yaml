@@ -45,20 +45,19 @@ spec:
               type: boolean
               default: false
   template: |
-    infraProvider: {{.default.infrastructure}}
     antrea:
       config:
-        trafficEncapMode: {{.values.trafficEncapMode}}
-        noSNAT: {{.values.noSNAT}}
-        disableUdpTunnelOffload: {{.values.disableUdpTunnelOffload}}
-        defaultMTU: {{.values.defaultMTU}}
-        tlsCipherSuites: {{.values.tlsCipherSuites}}
+        trafficEncapMode: {{.trafficEncapMode}}
+        noSNAT: {{.noSNAT}}
+        disableUdpTunnelOffload: {{.disableUdpTunnelOffload}}
+        defaultMTU: {{.defaultMTU}}
+        tlsCipherSuites: {{.tlsCipherSuites}}
         featureGates:
-          AntreaProxy: {{.values.featureGates.AntreaProxy}}
-          EndpointSlice: {{.values.featureGates.EndpointSlice}}
-          AntreaPolicy: {{.values.featureGates.AntreaPolicy}}
-          FlowExporter: {{.values.featureGates.FlowExporter}}
-          Egress: {{.values.featureGates.Egress}}
-          NodePortLocal: {{.values.featureGates.NodePortLocal}}
-          AntreaTraceflow: {{.values.featureGates.AntreaTraceflow}}
-          NetworkPolicyStats: {{.values.featureGates.NetworkPolicyStats}}
+          AntreaProxy: {{.featureGates.AntreaProxy}}
+          EndpointSlice: {{.featureGates.EndpointSlice}}
+          AntreaPolicy: {{.featureGates.AntreaPolicy}}
+          FlowExporter: {{.featureGates.FlowExporter}}
+          Egress: {{.featureGates.Egress}}
+          NodePortLocal: {{.featureGates.NodePortLocal}}
+          AntreaTraceflow: {{.featureGates.AntreaTraceflow}}
+          NetworkPolicyStats: {{.featureGates.NetworkPolicyStats}}

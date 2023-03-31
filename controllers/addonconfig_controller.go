@@ -20,20 +20,25 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"text/template"
 	"time"
 
 	"github.com/pkg/errors"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	defaultingschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/defaulting"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/json"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -192,6 +197,61 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal the defaulted JSON")
 		}
 
+		type addonConfiguration struct {
+			Values apiextensionsv1.JSON
+		}
+
+		addonCfg := addonConfiguration{Values: addonConfig.Spec.Values}
+
+		addonConfigTemplate, err := template.New("addonConfigurationTemplate").Option("missingkey=default").Parse(addonConfigDefinition.Spec.Template)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to create template")
+		}
+
+		addonConfigurationMap := map[string]interface{}{}
+		if err := json.Unmarshal(addonCfg.Values.Raw, &addonConfigurationMap); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal template")
+		}
+
+		if err = addonConfigTemplate.Execute(os.Stdout, addonConfigurationMap); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to apply the parsed addon config definition template to the addon config object")
+		}
+
+		f, err := os.CreateTemp("", addonConfig.Name+"-")
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to create output file for addon data values")
+		}
+
+		defer func() {
+			f.Close()
+			if err := os.Remove(f.Name()); err != nil {
+				log.Error(err, fmt.Sprintf("unable to remove file %s", f.Name()))
+			}
+		}()
+
+		if err = addonConfigTemplate.Execute(f, addonConfigurationMap); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to apply the parsed addon config definition template to the addon config object")
+		}
+
+		b, err := os.ReadFile(f.Name())
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to read file contents")
+		}
+
+		secret := &v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: addonConfig.Name, Namespace: "default"}, Type: v1.SecretTypeOpaque}
+		mutateFn := func() error {
+			secret.StringData = make(map[string]string)
+			secret.StringData["values.yaml"] = string(b)
+			return nil
+		}
+
+		if _, err := controllerutil.CreateOrPatch(ctx, r.Client, secret, mutateFn); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to create or patch addonConfigConfig data values secret")
+		}
+
+		// TODO(Marjan): Fill in all derived fields
+		// TODO(Marjan): Fill in cluster/CAPI tree related fields
+		// These are all shown with <no value> or left with empty value at the moment
 	} else {
 		defaultingInternalError(addonConfig)
 		return ctrl.Result{}, errors.Wrap(err, "unable to convert internal schema to structural")
