@@ -26,7 +26,12 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	cacheddiscovery "k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	controlplanev1beta1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -46,6 +51,10 @@ func init() {
 
 	utilruntime.Must(addonv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
+
+	utilruntime.Must(clusterapiv1beta1.AddToScheme(scheme))
+
+	utilruntime.Must(controlplanev1beta1.AddToScheme(scheme))
 }
 
 func main() {
@@ -89,9 +98,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	dynClient, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "Error creating dynamic client")
+		os.Exit(1)
+	}
+
+	//ctx := ctrl.SetupSignalHandler()
+	clientset := kubernetes.NewForConfigOrDie(mgr.GetConfig())
+	CachedDiscoveryClient := cacheddiscovery.NewMemCacheClient(clientset.DiscoveryClient)
+
+	// TODO: Question: how to initialize clusterctl to be able to use DescribeCluster() later, as don't know if its config path exists or not?
+	//clusterctl.New()
+
 	if err = (&controllers.AddonConfigReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:                mgr.GetClient(),
+		DynamicClient:         dynClient,
+		CachedDiscoveryClient: CachedDiscoveryClient,
+		Scheme:                mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AddonConfig")
 		os.Exit(1)

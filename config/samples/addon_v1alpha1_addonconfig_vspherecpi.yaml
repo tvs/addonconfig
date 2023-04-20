@@ -2,6 +2,11 @@ apiVersion: addon.tvs.io/v1alpha1
 kind: AddonConfig
 metadata:
   name: vspherecpi-config
+  ownerReferences:
+    - apiVersion: cluster.x-k8s.io/v1beta1
+      kind: Cluster
+      name: wl-antrea
+      uid: "34112ce3-f55f-4474-8943-20eaafd12568"
 spec:
   type: vspherecpi
   values:
@@ -10,5 +15,5 @@ spec:
       mode: vsphereCPI
       tlsCipherSuites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
       vmNetwork:
-        excludeExternalSubnetCidr: 10.92.162.220/32
-        excludeInternalSubnetCidr: 10.92.162.220/32
+        excludeExternalSubnetCidr: 10.92.162.230/32
+        excludeInternalSubnetCidr: 10.92.162.230/32

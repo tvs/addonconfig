@@ -2,6 +2,11 @@ apiVersion: addon.tvs.io/v1alpha1
 kind: AddonConfig
 metadata:
   name: antrea-config-invalid
+  ownerReferences:
+    - apiVersion: cluster.x-k8s.io/v1beta1
+      kind: Cluster
+      name: wl-antrea
+      uid: "34112ce3-f55f-4474-8943-20eaafd12568"
 spec:
   type: antrea-changed
   values:

@@ -11,15 +11,31 @@ spec:
           type: string
         noSNAT:
          type: boolean
+         default: false
         disableUdpTunnelOffload:
           type: boolean
+          default: false
         defaultMTU:
           type: string
         tlsCipherSuites:
           type: string
+        disableTXChecksumOffload:
+          type: boolean
+          default: false
+        dnsServerOverride:
+          type: string
+        enableBridgingMode:
+          type: boolean
+          default: false
+        enableUsageReporting:
+          type: boolean
+          default: false
         featureGates:
           type: object
           properties:
+            AntreaIPAM:
+              type: boolean
+              default: false
             AntreaProxy:
               type: boolean
               default: true
@@ -34,30 +50,68 @@ spec:
               default: false
             Egress:
               type: boolean
-              default: false
+              default: true
             NodePortLocal:
-              type: boolean
-              default: false
+              properties:
+                enabled:
+                  default: false
+                  type: boolean
+                portRange:
+                  default: ""
+                  type: string
+              type: object
             AntreaTraceflow:
               type: boolean
               default: true
             NetworkPolicyStats:
               type: boolean
               default: false
+            Multicast:
+              type: boolean
+              default: false
+            Multicluster:
+              type: object
+              properties:
+                enable:
+                  default: false
+                  type: boolean
+                namespace:
+                  default: null
+                  nullable: true
+                  type: string
+            SecondaryNetwork:
+              type: boolean
+              default: false
+            ServiceExternalIP:
+              type: boolean
+              default: false
+            TrafficControl:
+              type: boolean
+              default: false
   template: |
     antrea:
       config:
-        trafficEncapMode: {{.trafficEncapMode}}
-        noSNAT: {{.noSNAT}}
-        disableUdpTunnelOffload: {{.disableUdpTunnelOffload}}
-        defaultMTU: {{.defaultMTU}}
-        tlsCipherSuites: {{.tlsCipherSuites}}
+        defaultMTU: {{.Values.antrea.config.defaultMTU}}
+        disableTXChecksumOffload: {{.Values.antrea.config.disableTXChecksumOffload}}
+        disableUdpTunnelOffload: {{.Values.antrea.config.disableUdpTunnelOffload}}
+        dnsServerOverride: {{.Values.antrea.config.disableUdpTunnelOffload}}
+        enableBridgingMode: {{.Values.antrea.config.enableBridgingMode}} 
+        enableUsageReporting: {{.Values.antrea.config.enableUsageReporting}}
+        trafficEncapMode: {{.Values.antrea.config.trafficEncapMode}}
+        noSNAT: {{.Values.antrea.config.noSNAT}}
+        tlsCipherSuites: {{.Values.antrea.config.tlsCipherSuites}}
         featureGates:
-          AntreaProxy: {{.featureGates.AntreaProxy}}
-          EndpointSlice: {{.featureGates.EndpointSlice}}
-          AntreaPolicy: {{.featureGates.AntreaPolicy}}
-          FlowExporter: {{.featureGates.FlowExporter}}
-          Egress: {{.featureGates.Egress}}
-          NodePortLocal: {{.featureGates.NodePortLocal}}
-          AntreaTraceflow: {{.featureGates.AntreaTraceflow}}
-          NetworkPolicyStats: {{.featureGates.NetworkPolicyStats}}
+          AntreaIPAM: {{.Values.antrea.config.featureGates.AntreaIPAM}}
+          AntreaPolicy: {{.Values.antrea.config.featureGates.AntreaPolicy}}
+          AntreaProxy: {{.Values.antrea.config.featureGates.AntreaProxy}}
+          AntreaTraceflow: {{.Values.antrea.config.featureGates.AntreaTraceflow}}
+          Egress: {{.Values.antrea.config.featureGates.Egress}}
+          EndpointSlice: {{.Values.antrea.config.featureGates.EndpointSlice}}
+          FlowExporter: {{.Values.antrea.config.featureGates.FlowExporter}}
+          Multicast: {{.Values.antrea.config.featureGates.Multicast}}
+          Multicluster: {{.Values.antrea.config.featureGates.Multicluster}}
+          NodePortLocal: {{.Values.antrea.config.featureGates.NodePortLocal}}
+          NetworkPolicyStats: {{.Values.antrea.config.featureGates.NetworkPolicyStats}}
+          SecondaryNetwork: {{.Values.antrea.config.featureGates.SecondaryNetwork}}
+          ServiceExternalIP: {{.Values.antrea.config.featureGates.ServiceExternalIP}}
+          TrafficControl: {{.Values.antrea.config.featureGates.TrafficControl}}

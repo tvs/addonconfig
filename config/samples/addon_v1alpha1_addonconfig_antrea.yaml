@@ -2,20 +2,37 @@ apiVersion: addon.tvs.io/v1alpha1
 kind: AddonConfig
 metadata:
   name: antrea-config
+  ownerReferences:
+    - apiVersion: cluster.x-k8s.io/v1beta1
+      kind: Cluster
+      name: wl-antrea
+      uid: "34112ce3-f55f-4474-8943-20eaafd12568"
 spec:
   type: antrea
   values:
-    trafficEncapMode: encap
-    noSNAT: false
-    disableUdpTunnelOffload: false
-    defaultMTU: ""
-    tlsCipherSuites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_256_GCM_SHA384
-    featureGates:
-        AntreaProxy: true
-        EndpointSlice: false
-        AntreaPolicy: true
-        FlowExporter: false
-        Egress: false
-        NodePortLocal: false
-        AntreaTraceflow: true
-        NetworkPolicyStats: false
+    antrea:
+      config:
+        trafficEncapMode: encap
+        noSNAT: false
+        disableTXChecksumOffload: false
+        disableUdpTunnelOffload: false
+        dnsServerOverride: ""
+        enableBridgingMode: false
+        enableUsageReporting: false
+        defaultMTU: ""
+        tlsCipherSuites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_256_GCM_SHA384
+        featureGates:
+            AntreaIPAM: false
+            AntreaProxy: true
+            EndpointSlice: true
+            AntreaPolicy: true
+            FlowExporter: false
+            Multicast: false
+            Multicluster: false
+            Egress: true
+            NodePortLocal: true
+            AntreaTraceflow: true
+            NetworkPolicyStats: false
+            SecondaryNetwork: false
+            ServiceExternalIP: false
+            TrafficControl: false

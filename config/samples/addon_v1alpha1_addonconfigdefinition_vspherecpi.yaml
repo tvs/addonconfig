@@ -3,6 +3,25 @@ kind: AddonConfigDefinition
 metadata:
   name: vspherecpi
 spec:
+  dependencies:
+    - name: my-secret
+      kind: Secret
+      namespace: my-ns
+      apiVersion: v1
+      labelSelector:
+        key: "my-secret-label"
+        value: "true"
+    - name: another-secret
+      kind: Secret
+      namespace: my-ns
+      apiVersion: v1
+    - name: my-configmap
+      kind: ConfigMap
+      namespace: my-ns
+      apiVersion: v1
+      labelSelector:
+        key: "my-cm-label"
+        value: "some-value"
   schema:
     openAPIV3Schema:
       type: object
@@ -251,51 +270,56 @@ spec:
     type: object
   template: |
     vsphereCPI:
-      {{- if eq .vsphereCPI.mode "vsphereCPI"}}
-        mode: {{.vsphereCPI.mode}}
-        server: {{.server}}
-        datacenter: {{.datacenter}}
-        username: {{.username}}
-        password: {{.password}}
-        region: {{.region}}
-        zone: {{.zone}}
-        insecureFlag: {{.insecureFlag}}
-        ipFamily: {{.ipFamily}}
-        vmInternalNetwork: {{.vmInternalNetwork}}
-        vmExternalNetwork: {{.vmExternalNetwork}}
-        vmExcludeInternalNetworkSubnetCidr: {{.vsphereCPI.vmNetwork.excludeInternalSubnetCidr}}
-        vmExcludeExternalNetworkSubnetCidr: {{.vsphereCPI.vmNetwork.excludeExternalSubnetCidr}}
+      {{- if eq .Values.vsphereCPI.mode "vsphereCPI"}}
+        mode: {{.Values.vsphereCPI.mode}}
+        {{if .Cluster.InfrastructureCluster.spec.thumbprint }}tlsThumbprint:{{ .Cluster.InfrastructureCluster.spec.thumbprint }}{{- else }}tlsThumbprint:{{ "" }}{{- end }}
+        server: {{.Cluster.InfrastructureCluster.spec.server}}
+        datacenter: {{index .Cluster.MachineTemplates 0 "spec" "template" "spec" "datacenter"}}
+        username: {{index .Dependencies 0 "metadata" "name"}}
+        password: {{index .Dependencies 2 "metadata" "name"}}
+        {{if .Values.vsphereCPI.region }}region:{{ .Values.vsphereCPI.region }}{{- else }}region:{{ "" }}{{- end }}
+        {{if .Values.vsphereCPI.zone }}zone:{{ .Values.vsphereCPI.zone }}{{- else }}zone:{{ "" }}{{- end }}
+        {{- if .Cluster.InfrastructureCluster.spec.insecure }}
+        insecureFlag: {{ .Cluster.InfrastructureCluster.spec.insecure }}
+        {{- else }}
+        insecureFlag: {{ eq .Cluster.InfrastructureCluster.spec.thumbprint "" }}
+        {{- end }}
+        ipFamily: {{index .Cluster.Cluster "metadata" "annotations" "tkg.tanzu.vmware.com/tkg-ip-family"}}
+        {{if .Values.vsphereCPI.vmNetwork.vmInternalNetwork }}vmInternalNetwork:{{ .Values.vsphereCPI.vmNetwork.vmInternalNetwork }}{{- else }}vmInternalNetwork:{{ "" }}{{- end }}
+        {{if .Values.vsphereCPI.vmNetwork.vmExternalNetwork }}vmExternalNetwork:{{ .Values.vsphereCPI.vmNetwork.vmExternalNetwork }}{{- else }}vmInternalNetwork:{{ "" }}{{- end }}
+        vmExcludeInternalNetworkSubnetCidr: {{.Values.vsphereCPI.vmNetwork.excludeInternalSubnetCidr}}
+        vmExcludeExternalNetworkSubnetCidr: {{.Values.vsphereCPI.vmNetwork.excludeExternalSubnetCidr}}
         cloudProviderExtraArgs:
-          tls-cipher-suites: {{.vsphereCPI.tlsCipherSuites}}
+          tls-cipher-suites: {{.Values.vsphereCPI.tlsCipherSuites}}
         nsxt:
-          podRoutingEnabled: {{.vsphereCPI.antreaNSXPodRoutingEnabled}}
+          podRoutingEnabled: {{.Values.vsphereCPI.antreaNSXPodRoutingEnabled}}
           routes:
-            routerPath: {{.routerPath}}
-            clusterCidr: {{.clusterCidr}}
+            {{if .Values.vsphereCPI.nsxt.routes.routerPath }}routerPath:{{ .Values.vsphereCPI.nsxt.routes.routerPath }}{{- else }}routerPath:{{ "" }}{{- end }}
+            clusterCidr: {{ index .Cluster.Cluster "spec" "clusterNetwork" "pods" "cidrBlocks" 0 }}
           username: {{.username}}
           password: {{.password}}
-          host: {{.host}}
-          insecure: {{.insecure}}
-          remoteAuthEnabled: {{.remoteAuthEnabled}}
-          vmcAccessToken: {{.vmcAccessToken}}
-          vmcAuthHost: {{.vmcAuthHost}}
-          clientCertKeyData: {{.clientCertKeyData}}
-          clientCertData: {{.clientCertData}}
-          rootCAData: {{.rootCAData}}
-          secretName: {{.secretName}}
-          secretNamespace: {{.secretNamespace}}
-        http_proxy: {{.http_proxy}}
-        https_proxy: {{.https_proxy}}
-        no_proxy: {{.no_proxy}}
-      {{- else if eq .vsphereCPI.mode "vsphereParavirtualCPI"}}
-        mode: {{.vsphereCPI.mode}}
-        clusterAPIVersion: {{.clusterAPIVersion}}
-        clusterKind: {{.clusterKind}}
-        clusterName: {{.clusterName}}
-        clusterUID: {{.clusterUID}}
+          {{if .Values.vsphereCPI.nsxt.host }}host:{{ .Values.vsphereCPI.nsxt.host }}{{- else }}host:{{ "" }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.insecure }}insecure:{{ .Values.vsphereCPI.nsxt.insecure }}{{- else }}insecure:{{ false }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.remoteAuthEnabled }}remoteAuthEnabled:{{ .Values.vsphereCPI.nsxt.remoteAuthEnabled }}{{- else }}remoteAuthEnabled:{{ false }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.vmcAccessToken }}vmcAccessToken:{{ .Values.vsphereCPI.nsxt.vmcAccessToken }}{{- else }}vmcAccessToken:{{ "" }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.vmcAuthHost }}vmcAuthHost:{{ .Values.vsphereCPI.nsxt.vmcAuthHost }}{{- else }}vmcAuthHost:{{ "" }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.clientCertKeyData }}clientCertKeyData:{{ .Values.vsphereCPI.nsxt.clientCertKeyData }}{{- else }}clientCertKeyData:{{ "" }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.clientCertData }}clientCertData:{{ .Values.vsphereCPI.nsxt.clientCertData }}{{- else }}clientCertData:{{ "" }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.rootCAData }}rootCAData:{{ .Values.vsphereCPI.nsxt.rootCAData }}{{- else }}rootCAData:{{ "" }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.secretName }}secretName:{{ .Values.vsphereCPI.nsxt.secretName }}{{- else }}secretName:{{ "" }}{{- end }}
+          {{if .Values.vsphereCPI.nsxt.secretNamespace }}secretNamespace:{{ .Values.vsphereCPI.nsxt.secretNamespace }}{{- else }}secretNamespace:{{ "" }}{{- end }}
+        http_proxy: {{index .Cluster.Cluster "metadata" "annotations" "tkg.tanzu.vmware.com/tkg-http-proxy"}}
+        https_proxy: {{index .Cluster.Cluster "metadata" "annotations" "tkg.tanzu.vmware.com/tkg-https-proxy"}}
+        no_proxy: {{index .Cluster.Cluster "metadata" "annotations" "tkg.tanzu.vmware.com/tkg-no-proxy"}}
+      {{- else if eq .Values.vsphereCPI.mode "vsphereParavirtualCPI"}}
+        mode: {{.Values.vsphereCPI.mode}}
+        clusterAPIVersion: {{.Cluster.ClusterGroupVersion}}
+        clusterKind: {{.Cluster.ClusterKind}}
+        clusterName: {{.Cluster.Cluster.metadata.name}}
+        clusterUID: {{.Cluster.Cluster.metadata.uid}}
         supervisorMasterEndpointIP: {{.supervisorMasterEndpointIP}}
         supervisorMasterPort: {{.supervisorMasterPort}}
-        antreaNSXPodRoutingEnabled: {{.vsphereCPI.antreaNSXPodRoutingEnabled}}
+        antreaNSXPodRoutingEnabled: {{.Values.vsphereCPI.antreaNSXPodRoutingEnabled}}
       {{- end}}
        
 

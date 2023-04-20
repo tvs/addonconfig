@@ -36,6 +36,28 @@ spec:
           spec:
             description: AddonConfigDefinitionSpec defines the desired state of AddonConfigDefinition
             properties:
+              dependencies:
+                description: Dependencies describe the dependency objects needed for
+                  an add-on
+                items:
+                  properties:
+                    apiVersion:
+                      type: string
+                    kind:
+                      type: string
+                    labelSelector:
+                      properties:
+                        key:
+                          type: string
+                        value:
+                          type: string
+                      type: object
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  type: object
+                type: array
               schema:
                 description: schema describes the schema used for validation, pruning,
                   and defaulting of this version of the custom resource.

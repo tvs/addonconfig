@@ -32,6 +32,34 @@ type AddonConfigDefinitionSpec struct {
 
 	// template describes the template used when marshalling the schema into an add-on usable format
 	Template string `json:"template" protobuf:"bytes,2,opt,name=template"`
+
+	// Dependencies describe the dependency objects needed for an add-on
+	Dependencies []DependencySpec `json:"dependencies,omitempty" protobuf:"bytes,3,opt,name=dependencies"`
+}
+
+type DependencySpec struct {
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// +optional
+	Kind string `json:"kind,omitempty"`
+
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// +optional
+	ApiVersion string `json:"apiVersion,omitempty"`
+
+	// +optional
+	LabelSelector LabelSelectorKeyVal `json:"labelSelector,omitempty"`
+}
+
+type LabelSelectorKeyVal struct {
+	// +optional
+	Key string `json:"key,omitempty"`
+
+	// +optional
+	Value string `json:"value,omitempty"`
 }
 
 // AddonConfigDefinitionStatus defines the observed state of AddonConfigDefinition

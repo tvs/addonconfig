@@ -1,0 +1,10 @@
+apiVersion: v1
+data:
+  apiServerPort: "8080"
+  serviceType: NodePort
+kind: ConfigMap
+metadata:
+  labels:
+    my-cm-label: "some-value"
+  name: my-configmap
+  namespace: my-ns

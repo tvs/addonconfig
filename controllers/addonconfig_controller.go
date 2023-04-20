@@ -33,9 +33,17 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/dynamic"
+	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/external"
+	controlplanev1beta1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
+	clusterapipatchutil "sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -51,7 +59,39 @@ import (
 // AddonConfigReconciler reconciles a AddonConfig object
 type AddonConfigReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	DynamicClient         dynamic.Interface
+	CachedDiscoveryClient discovery.CachedDiscoveryInterface
+	Scheme                *runtime.Scheme
+}
+
+type ClusterResources struct {
+	Cluster               *clusterapiv1beta1.Cluster
+	InfrastructureCluster *unstructured.Unstructured
+	MachineDeployments    *clusterapiv1beta1.MachineDeploymentList
+	KubeadmControlPlane   *controlplanev1beta1.KubeadmControlPlane
+	CfgTemplates          []*unstructured.Unstructured
+	MachineTemplates      []*unstructured.Unstructured
+	ClusterGroupVersion   string
+	ClusterKind           string
+}
+
+type addonConfiguration struct {
+	Values       apiextensionsv1.JSON
+	Cluster      *ClusterResources
+	Dependencies []*unstructured.Unstructured
+}
+
+type dependencySpec struct {
+	Kind          string              `yaml:"kind,omitempty"`
+	Name          string              `yaml:"name,omitempty"`
+	Namespace     string              `yaml:"namespace,omitempty"`
+	ApiVersion    string              `yaml:"apiVersion,omitempty"`
+	LabelSelector labelSelectorKeyVal `yaml:"labelSelector,omitempty"`
+}
+
+type labelSelectorKeyVal struct {
+	Key   string `yaml:"key,omitempty"`
+	Value string `json:"value,omitempty"`
 }
 
 //+kubebuilder:rbac:groups=addon.tvs.io,resources=addonconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -95,6 +135,30 @@ func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addonv1.AddonConfig) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Starting AddonConfig reconciliation")
+
+	cluster, err := util.GetOwnerCluster(ctx, r.Client, addonConfig, addonConfig.Namespace)
+	if err != nil {
+		if apierrors.IsNotFound(err) && cluster != nil {
+			log.Info(fmt.Sprintf("'%s/%s' is listed as owner reference but could not be found", cluster.Namespace, cluster.Name))
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, nil
+	}
+
+	patchHelper, err := clusterapipatchutil.NewHelper(cluster, r.Client)
+	if err != nil {
+		return ctrl.Result{}, nil
+	}
+
+	cluster.Annotations["tkg.tanzu.vmware.com/tkg-ip-family"] = "ipv4"
+	cluster.Annotations["tkg.tanzu.vmware.com/tkg-http-proxy"] = "http://10.202.27.228:3128"
+	cluster.Annotations["tkg.tanzu.vmware.com/tkg-https-proxy"] = "http://10.202.27.228:3128"
+	cluster.Annotations["tkg.tanzu.vmware.com/tkg-no-proxy"] = "10.246.0.0/16"
+
+	if err := patchHelper.Patch(ctx, cluster); err != nil {
+		log.Error(err, "unable to patch Cluster Annotation")
+		return ctrl.Result{}, nil
+	}
 
 	// TODO(tvs): Better validation; right now the API server will accept invalid
 	// AddonConfigDefinitions (stick `required` under `properties` for example`)
@@ -197,20 +261,33 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal the defaulted JSON")
 		}
 
-		type addonConfiguration struct {
-			Values apiextensionsv1.JSON
+		clusterResources, err := r.getCAPIObjectsTree(ctx, cluster)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
-		addonCfg := addonConfiguration{Values: addonConfig.Spec.Values}
+		dependencyObjects, err := r.getDependencyObjects(ctx, addonConfigDefinition)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 
-		addonConfigTemplate, err := template.New("addonConfigurationTemplate").Option("missingkey=default").Parse(addonConfigDefinition.Spec.Template)
+		addonCfg := addonConfiguration{
+			Values:       addonConfig.Spec.Values,
+			Cluster:      clusterResources,
+			Dependencies: dependencyObjects,
+		}
+
+		// TODO: dependency in ACT , find all these sub-resources and use those in templating as well
+
+		addonConfigTemplate, err := template.New("addonConfigurationTemplate").Option("missingkey=invalid").Parse(addonConfigDefinition.Spec.Template)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "unable to create template")
 		}
 
+		cfg, _ := json.Marshal(addonCfg)
 		addonConfigurationMap := map[string]interface{}{}
-		if err := json.Unmarshal(addonCfg.Values.Raw, &addonConfigurationMap); err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal template")
+		if err := json.Unmarshal(cfg, &addonConfigurationMap); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal addon config")
 		}
 
 		if err = addonConfigTemplate.Execute(os.Stdout, addonConfigurationMap); err != nil {
@@ -248,10 +325,6 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 		if _, err := controllerutil.CreateOrPatch(ctx, r.Client, secret, mutateFn); err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "unable to create or patch addonConfigConfig data values secret")
 		}
-
-		// TODO(Marjan): Fill in all derived fields
-		// TODO(Marjan): Fill in cluster/CAPI tree related fields
-		// These are all shown with <no value> or left with empty value at the moment
 	} else {
 		defaultingInternalError(addonConfig)
 		return ctrl.Result{}, errors.Wrap(err, "unable to convert internal schema to structural")
@@ -320,4 +393,150 @@ func defaultingInternalError(addonConfig *addonv1.AddonConfig) {
 		addonv1.DefaultingInternalError,
 		addonv1.ConditionSeverityError,
 		addonv1.DefaultingInternalErrorMessage)
+}
+
+func (r *AddonConfigReconciler) gvrForGroupKind(gk schema.GroupKind) (*schema.GroupVersionResource, error) {
+	apiResourceList, err := r.CachedDiscoveryClient.ServerPreferredResources()
+
+	if err != nil {
+		return nil, err
+	}
+	for _, apiResource := range apiResourceList {
+		gv, err := schema.ParseGroupVersion(apiResource.GroupVersion)
+		if err != nil {
+			return nil, err
+		}
+		if gv.Group == gk.Group {
+			for i := 0; i < len(apiResource.APIResources); i++ {
+				if apiResource.APIResources[i].Kind == gk.Kind {
+					return &schema.GroupVersionResource{Group: gv.Group, Resource: apiResource.APIResources[i].Name, Version: gv.Version}, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("unable to find server preferred resource %s/%s", gk.Group, gk.Kind)
+}
+
+func (r *AddonConfigReconciler) getResource(ctx context.Context, groupKind schema.GroupKind, resourceName, resourceNamespace string) (*unstructured.Unstructured, error) {
+	gvr, err := r.gvrForGroupKind(groupKind)
+	if err != nil {
+		return nil, err
+	}
+
+	provider, err := r.DynamicClient.Resource(*gvr).Namespace(resourceNamespace).Get(ctx, resourceName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return provider, nil
+}
+
+func (r *AddonConfigReconciler) getCAPIObjectsTree(ctx context.Context, cluster *clusterapiv1beta1.Cluster) (*ClusterResources, error) {
+	var (
+		err      error
+		provider *unstructured.Unstructured
+	)
+
+	if cluster.Spec.InfrastructureRef == nil {
+		return nil, fmt.Errorf("cluster %s 's infrastructure reference is not set yet", cluster.Name)
+	}
+	gr := schema.GroupKind{Group: cluster.Spec.InfrastructureRef.GroupVersionKind().Group, Kind: cluster.Spec.InfrastructureRef.GroupVersionKind().Kind}
+	if provider, err = r.getResource(ctx, gr, cluster.Spec.InfrastructureRef.Name, cluster.Spec.InfrastructureRef.Namespace); err != nil {
+		return nil, err
+	}
+
+	if cluster.Spec.ControlPlaneRef == nil {
+		return nil, fmt.Errorf("cluster %s 's controlplane reference is not set yet", cluster.Name)
+	}
+	kcp := &controlplanev1beta1.KubeadmControlPlane{}
+	if err = r.Client.Get(ctx, client.ObjectKey{Namespace: cluster.Spec.ControlPlaneRef.Namespace, Name: cluster.Spec.ControlPlaneRef.Name}, kcp); err != nil {
+		return nil, err
+	}
+
+	var machineDeployments clusterapiv1beta1.MachineDeploymentList
+	listOptions := []client.ListOption{
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels(map[string]string{clusterapiv1beta1.ClusterNameLabel: cluster.Name}),
+	}
+	if err = r.Client.List(ctx, &machineDeployments, listOptions...); err != nil {
+		return nil, err
+	}
+
+	var cfgTemplates []*unstructured.Unstructured
+	for _, m := range machineDeployments.Items {
+		obj, err := external.Get(ctx, r.Client, m.Spec.Template.Spec.Bootstrap.ConfigRef, cluster.Namespace)
+		if err != nil {
+			return nil, err
+		}
+		cfgTemplates = append(cfgTemplates, obj)
+	}
+
+	var machineTemplates []*unstructured.Unstructured
+	for _, m := range machineDeployments.Items {
+		obj, err := external.Get(ctx, r.Client, &m.Spec.Template.Spec.InfrastructureRef, cluster.Namespace)
+		if err != nil {
+			return nil, err
+		}
+		machineTemplates = append(machineTemplates, obj)
+	}
+
+	return &ClusterResources{
+		Cluster:               cluster,
+		InfrastructureCluster: provider,
+		MachineDeployments:    &machineDeployments,
+		KubeadmControlPlane:   kcp,
+		CfgTemplates:          cfgTemplates,
+		MachineTemplates:      machineTemplates,
+		ClusterGroupVersion:   cluster.GroupVersionKind().GroupVersion().String(),
+		ClusterKind:           cluster.GroupVersionKind().Kind,
+	}, err
+}
+
+func (r *AddonConfigReconciler) getDependencyObjects(ctx context.Context, addonConfigDefinition *addonv1.AddonConfigDefinition) ([]*unstructured.Unstructured, error) {
+	var (
+		dependencyObjects []*unstructured.Unstructured
+		objFound          bool
+		err               error
+	)
+
+	dependencies := r.generateDependenciesFromTemplate(addonConfigDefinition)
+	for _, m := range dependencies {
+		objRef := &v1.ObjectReference{Kind: m.Kind, Namespace: m.Namespace, Name: m.Name, APIVersion: m.ApiVersion}
+		obj, err := external.Get(ctx, r.Client, objRef, m.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("unable to find object %s/%s", m.Namespace, m.Name)
+		}
+
+		if val, ok := obj.GetLabels()[m.LabelSelector.Key]; ok {
+			if val == m.LabelSelector.Value {
+				objFound = true
+			}
+		}
+		if m.LabelSelector.Key == "" || objFound {
+			dependencyObjects = append(dependencyObjects, obj)
+		}
+	}
+
+	return dependencyObjects, err
+}
+
+func (r *AddonConfigReconciler) generateDependenciesFromTemplate(addonConfigDefinition *addonv1.AddonConfigDefinition) []dependencySpec {
+	var dependencies []dependencySpec
+
+	for _, dependency := range addonConfigDefinition.Spec.Dependencies {
+		dependencies = append(dependencies,
+			dependencySpec{
+				ApiVersion: dependency.ApiVersion,
+				Kind:       dependency.Kind,
+				Name:       dependency.Name,
+				Namespace:  dependency.Namespace,
+				LabelSelector: labelSelectorKeyVal{
+					Key:   dependency.LabelSelector.Key,
+					Value: dependency.LabelSelector.Value,
+				},
+			},
+		)
+	}
+
+	return dependencies
 }

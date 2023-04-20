@@ -9,19 +9,28 @@ You’ll need a Kubernetes cluster to run against. You can use [KIND](https://si
 **Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
 
 ### Running on the cluster
+0. Add `Name` and `UID` of your workload cluster to the `metadata.ownerReferences` section in all addon config files `(*_addonconfig_*.yaml)` under `config/samples/` directory.
+the reason is that for now the logic that add owner references to the addon objects is not implemented in this POC yet.
+
 1. Install Instances of Custom Resources:
 
 ```sh
 kubectl apply -f config/samples/
 ```
 
-2. Build and push your image to the location specified by `IMG`:
+2. Install sample dependency resources:
+
+```sh
+kubectl apply -f config/sample-dependencies/
+```
+
+3. Build and push your image to the location specified by `IMG`:
 
 ```sh
 make docker-build docker-push IMG=<some-registry>/addonconfig:tag
 ```
 
-3. Deploy the controller to the cluster with the image specified by `IMG`:
+4. Deploy the controller to the cluster with the image specified by `IMG`:
 
 ```sh
 make deploy IMG=<some-registry>/addonconfig:tag

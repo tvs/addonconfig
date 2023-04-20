@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sversion "k8s.io/apimachinery/pkg/version"
+	clusterapiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -54,6 +55,9 @@ var (
 	// ErrUnstructuredFieldNotFound determines that a field
 	// in an unstructured object could not be found.
 	ErrUnstructuredFieldNotFound = fmt.Errorf("field not found")
+
+	// ClusterKind is the Kind for cluster-api Cluster object
+	ClusterKind = reflect.TypeOf(clusterapiv1beta1.Cluster{}).Name()
 )
 
 // RandomString returns a random alphanumeric string.
@@ -346,4 +350,30 @@ func IsNil(i interface{}) bool {
 		return reflect.ValueOf(i).IsValid() && reflect.ValueOf(i).IsNil()
 	}
 	return false
+}
+
+// GetOwnerCluster returns cluster owner for the object.
+// Returns cluster=nil and err if no cluster can be determined as owner.
+// Returns cluster object with only name and namespace  and err,
+// if details for the cluster listed as owner reference can not be found.
+func GetOwnerCluster(ctx context.Context, k8sClient client.Client, k8sObject client.Object, namespace string) (*clusterapiv1beta1.Cluster, error) {
+	cluster := &clusterapiv1beta1.Cluster{}
+	clusterName := ""
+
+	for _, ownerRef := range k8sObject.GetOwnerReferences() {
+		if strings.EqualFold(ownerRef.Kind, ClusterKind) {
+			clusterName = ownerRef.Name
+			break
+		}
+	}
+	if clusterName != "" {
+		cluster.Name = clusterName
+		cluster.Namespace = namespace
+	} else {
+		return nil, errors.New(fmt.Sprintf("could not determine owner cluster for AddonConfig %s/%s \n", k8sObject.GetNamespace(), k8sObject.GetName()))
+	}
+
+	err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), cluster)
+
+	return cluster, err
 }
