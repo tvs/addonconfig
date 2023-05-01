@@ -17,27 +17,20 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
-	defaultingschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/defaulting"
-	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/json"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	addonv1 "github.com/tvs/addonconfig/api/v1alpha1"
+	templatev1 "github.com/tvs/addonconfig/types/template/v1alpha1"
 	"github.com/tvs/addonconfig/util"
 	"github.com/tvs/addonconfig/util/conditions"
 	"github.com/tvs/addonconfig/util/patch"
@@ -91,10 +84,11 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Starting AddonConfig reconciliation")
 
-	// TODO(tvs): Better validation; right now the API server will accept invalid
-	// AddonConfigDefinitions (stick `required` under `properties` for example`)
-	//   E0309 00:14:47.141174       1 reflector.go:140] pkg/mod/k8s.io/client-go@v0.26.0/tools/cache/reflector.go:169: Failed to watch *v1alpha1.AddonConfigDefinition: failed to list *v1alpha1.AddonConfigDefinition: json: cannot unmarshal array into Go struct field JSONSchemaProps.items.spec.schema.openAPIV3Schema.properties of type v1.JSONSchemaProps
-	// Validating webhook would probably do the trick...
+	if addonConfig.Spec.Type == "" {
+		log.Info("AddonConfig does not define a type to validate against")
+		return ctrl.Result{}, nil
+	}
+
 	addonConfigDefinition := &addonv1.AddonConfigDefinition{}
 	acdKey := client.ObjectKey{Namespace: "", Name: addonConfig.Spec.Type}
 	if err := r.Client.Get(ctx, acdKey, addonConfigDefinition); err != nil {
@@ -111,95 +105,32 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 		}
 	}
 
-	// Manually updated the last observed generation of the schema
-	addonConfig.Status.ObservedSchemaGeneration = addonConfigDefinition.GetGeneration()
-
-	// Nothing to validate against so let's get out of here
-	if addonConfigDefinition.Spec.Schema == nil {
-		log.Info("No schema to validate against", "refName", acdKey.Name)
-
-		conditions.MarkFalse(addonConfig,
-			addonv1.ValidSchemaCondition,
-			addonv1.SchemaNotFound,
-			addonv1.ConditionSeverityError,
-			addonv1.SchemaNotFoundMessage, acdKey.Name)
-
-		return ctrl.Result{}, nil
+	// TODO(tvs): Consider extracting some of this to a typed context
+	templateVariables := &templatev1.AddonConfigTemplateVariables{}
+	phases := []func(context.Context, *addonv1.AddonConfig, *addonv1.AddonConfigDefinition, *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error){
+		r.reconcileValidation,
+		r.reconcileTarget,
+		r.reconcileDependencies,
+		r.reconcileTemplate,
 	}
 
-	conditions.MarkTrue(addonConfig, addonv1.ValidSchemaCondition)
-
-	internalValidation := &apiextensions.CustomResourceValidation{}
-	if err := apiextensionsv1.Convert_v1_CustomResourceValidation_To_apiextensions_CustomResourceValidation(addonConfigDefinition.Spec.Schema, internalValidation, nil); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed converting CRD validation to internal version")
-	}
-
-	validator, _, err := validation.NewSchemaValidator(internalValidation)
-	if err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "unable to convert internal validation to a validator")
-	}
-
-	if errs := validation.ValidateCustomResource(nil, addonConfig.Spec.Values, validator); len(errs) > 0 {
-		log.Info("Unable to validate AddonConfig against the AddonConfigDefinition's schema")
-		addonConfig.Status.FieldErrors = make(map[string]addonv1.FieldError, len(errs))
-		for _, err := range errs {
-			addonConfig.Status.FieldErrors.SetError(err)
-		}
-
-		conditions.MarkFalse(addonConfig,
-			addonv1.ValidConfigCondition,
-			addonv1.InvalidConfig,
-			addonv1.ConditionSeverityError,
-			addonv1.InvalidConfigMessage)
-
-		// This isn't really an error, so we just need to requeue
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-
-	// Explicitly reset the FieldErrors if nothing came up so we don't leave
-	// stale data
-	addonConfig.Status.FieldErrors = make(map[string]addonv1.FieldError, 0)
-
-	log.Info("Validated AddonConfig against AddonConfigDefinition successfully", "addonConfig.Name", addonConfig.Name, "addonConfig.Namespace", addonConfig.Namespace, "addonConfigDefinition.Name", addonConfigDefinition.Name)
-	conditions.MarkTrue(addonConfig, addonv1.ValidConfigCondition)
-
-	// Explicitly fill out structural default values on the AddonConfig spec
-	if ss, err := structuralschema.NewStructural(internalValidation.OpenAPIV3Schema); err == nil {
-		raw, err := addonConfig.Spec.Values.MarshalJSON()
+	res := ctrl.Result{}
+	errs := []error{}
+	for _, phase := range phases {
+		phaseResult, err := phase(ctx, addonConfig, addonConfigDefinition, templateVariables)
 		if err != nil {
-			defaultingInternalError(addonConfig)
-			return ctrl.Result{}, errors.Wrap(err, "unable to marshal values to JSON")
+			errs = append(errs, err)
 		}
 
-		var in interface{}
-		if err := json.Unmarshal(raw, &in); err != nil {
-			defaultingInternalError(addonConfig)
-			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal JSON")
+		// Exit early if there's an error
+		if len(errs) > 0 {
+			continue
 		}
 
-		defaultingschema.Default(in, ss)
-
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(in); err != nil {
-			defaultingInternalError(addonConfig)
-			return ctrl.Result{}, errors.Wrap(err, "unable to encode defaulted JSON")
-		}
-
-		if err := addonConfig.Spec.Values.UnmarshalJSON(buf.Bytes()); err != nil {
-			defaultingInternalError(addonConfig)
-			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal the defaulted JSON")
-		}
-
-	} else {
-		defaultingInternalError(addonConfig)
-		return ctrl.Result{}, errors.Wrap(err, "unable to convert internal schema to structural")
+		res = util.LowestNonZeroResult(res, phaseResult)
 	}
-	conditions.MarkTrue(addonConfig, addonv1.DefaultingCompleteCondition)
-	log.Info("Filled out default values for AddonConfig based on AddonConfigDefinition")
 
-	return ctrl.Result{}, nil
+	return res, kerrors.NewAggregate(errs)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -251,13 +182,4 @@ func patchAddonConfig(ctx context.Context, patchHelper *patch.Helper, addonConfi
 		}},
 	)
 	return patchHelper.Patch(ctx, addonConfig, options...)
-}
-
-// TODO(tvs): Clean up reconciliation logic so we only have to use this once
-func defaultingInternalError(addonConfig *addonv1.AddonConfig) {
-	conditions.MarkFalse(addonConfig,
-		addonv1.DefaultingCompleteCondition,
-		addonv1.DefaultingInternalError,
-		addonv1.ConditionSeverityError,
-		addonv1.DefaultingInternalErrorMessage)
 }

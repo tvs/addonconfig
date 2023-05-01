@@ -23,12 +23,18 @@ import (
 
 // AddonConfigSpec defines the desired state of AddonConfig
 type AddonConfigSpec struct {
-	// type is the name of the AddonConfigDefinition that this AddonConfig is validated against
+	// Type is the name of the AddonConfigDefinition that this AddonConfig is
+	// validated against
 	Type string `json:"type,omitempty" protobuf:"bytes,1,opt,name=type"`
 
-	// Values describes the fields to be validated and marshalled with the AddonConfigDefinition defined in type
+	// Target defines the CAPI cluster target for this instance of the
+	// AddonConfig.
+	Target ClusterTarget `json:"target" protobuf:"bytes:2,opt,name=target"`
+
+	// Values describes the fields to be validated and marshalled with the
+	// AddonConfigDefinition defined in type
 	// +optional
-	Values apiextensionsv1.JSON `json:"values,omitempty" protobuf:"bytes,2,opt,name=values"`
+	Values apiextensionsv1.JSON `json:"values,omitempty" protobuf:"bytes,3,opt,name=values"`
 }
 
 // AddonConfigStatus defines the observed state of AddonConfig
@@ -37,7 +43,8 @@ type AddonConfigStatus struct {
 	// +optional
 	Conditions Conditions `json:"conditions,omitempty" protobuf:"bytes,1,opt,name=conditions"`
 
-	// FieldErrors define any existing schema validation errors in the AddonConfig
+	// FieldErrors define any existing schema validation errors in the
+	// AddonConfig
 	// +optional
 	FieldErrors FieldErrors `json:"fieldErrors,omitempty" protobuf:"bytes,2,opt,name=fieldErrors"`
 
@@ -67,15 +74,26 @@ const (
 	// DefaultingCompleteCondition documents whether the AddonConfig has had
 	// missing defaulted values make explicit
 	DefaultingCompleteCondition ConditionType = "DefaultingComplete"
+
+	// ValidTargetCondition documents whether the AddonConfig has a valid target
+	// cluster
+	ValidTargetCondition ConditionType = "ValidTarget"
 )
 
 const (
 	SchemaNotFound                 string = "SchemaNotFound"
 	SchemaNotFoundMessage          string = "Unable to find schema by name %q"
+	InvalidSchema                  string = "InvalidSchema"
+	InvalidSchemaMessage           string = "Schema is invalid"
 	InvalidConfig                  string = "InvalidConfiguration"
 	InvalidConfigMessage           string = "Invalid configuration; see .status.fieldErrors for more information"
 	DefaultingInternalError        string = "DefaultingInternalError"
 	DefaultingInternalErrorMessage string = "Unable to render defaults due to an internal error"
+	TargetNotFound                 string = "TargetNotFound"
+	TargetNotFoundMessage          string = "No target has been found"
+	TargetNotDefinedMessage        string = "No target has been defined"
+	TargetNotUnique                string = "TargetNotUnique"
+	TargetNotUniqueMessage         string = "Selector identified more than one cluster"
 )
 
 //+kubebuilder:object:root=true

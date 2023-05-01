@@ -36,13 +36,97 @@ spec:
           spec:
             description: AddonConfigDefinitionSpec defines the desired state of AddonConfigDefinition
             properties:
+              dependencies:
+                description: Dependencies describes discovery of resources used when
+                  templating
+                items:
+                  description: AddonConfigDefinitionDependencies defines a named dependency
+                    for use during templating.
+                  properties:
+                    name:
+                      description: Name defines the top-level name used when providing
+                        the referent for templating.
+                      type: string
+                    target:
+                      description: Target defines the mechanism for identifying a
+                        resource to provide as a dependency. Target.Name and Target.Selector
+                        will have their values rendered with default templating variables
+                        provided by an AddonConfig.
+                      properties:
+                        apiVersion:
+                          description: API version of the target referent.
+                          type: string
+                        kind:
+                          description: Kind of the target referent.
+                          type: string
+                        name:
+                          description: Name of the target referent. Mutually exclusive
+                            with the selector.
+                          type: string
+                        selector:
+                          description: Label selector used to identify the referent.
+                            Must only identify one resource. Mutually exclusive with
+                            the explicit name.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: A label selector requirement is a selector
+                                  that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: operator represents a key's relationship
+                                      to a set of values. Valid operators are In,
+                                      NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: values is an array of string values.
+                                      If the operator is In or NotIn, the values array
+                                      must be non-empty. If the operator is Exists
+                                      or DoesNotExist, the values array must be empty.
+                                      This array is replaced during a strategic merge
+                                      patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: matchLabels is a map of {key,value} pairs.
+                                A single {key,value} in the matchLabels map is equivalent
+                                to an element of matchExpressions, whose key field
+                                is "key", the operator is "In", and the values array
+                                contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      required:
+                      - apiVersion
+                      - kind
+                      type: object
+                  required:
+                  - name
+                  - target
+                  type: object
+                type: array
               schema:
-                description: schema describes the schema used for validation, pruning,
+                description: Schema describes the schema used for validation, pruning,
                   and defaulting of this version of the custom resource.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               template:
-                description: template describes the template used when marshalling
+                description: Template describes the template used when marshalling
                   the schema into an add-on usable format
                 type: string
             required:

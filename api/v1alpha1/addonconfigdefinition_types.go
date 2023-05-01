@@ -23,15 +23,33 @@ import (
 
 // AddonConfigDefinitionSpec defines the desired state of AddonConfigDefinition
 type AddonConfigDefinitionSpec struct {
-	// schema describes the schema used for validation, pruning, and defaulting of this version of the custom resource.
+	// Schema describes the schema used for validation, pruning, and defaulting of this version of the custom resource.
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Type="object"
 	// +kubebuilder:validation:Schemaless
 	Schema *apiextensionsv1.CustomResourceValidation `json:"schema,omitempty" protobuf:"bytes,1,opt,name=schema"`
 
-	// template describes the template used when marshalling the schema into an add-on usable format
-	Template string `json:"template" protobuf:"bytes,2,opt,name=template"`
+	// Dependencies describes discovery of resources used when templating
+	// +optional
+	Dependencies []AddonConfigDefinitionDependencies `json:"dependencies,omitempty" protobuf:"bytes,2,opt,name=dependencies"`
+
+	// Template describes the template used when marshalling the schema into an add-on usable format
+	Template string `json:"template" protobuf:"bytes,3,opt,name=template"`
+}
+
+// AddonConfigDefinitionDependencies defines a named dependency for use during
+// templating.
+type AddonConfigDefinitionDependencies struct {
+	// Name defines the top-level name used when providing the referent for
+	// templating.
+	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
+
+	// Target defines the mechanism for identifying a resource to provide as a
+	// dependency.
+	// Target.Name and Target.Selector will have their values rendered with
+	// default templating variables provided by an AddonConfig.
+	Target Target `json:"target" protobuf:"bytes,2,opt,name=target"`
 }
 
 // AddonConfigDefinitionStatus defines the observed state of AddonConfigDefinition
