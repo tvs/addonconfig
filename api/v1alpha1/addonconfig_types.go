@@ -65,6 +65,7 @@ const (
 
 	// ValidSchemaCondition documents whether a schema exists and is valid. Must
 	// be true before validating the AddonConfig against it
+	// TODO(tvs): Move this validation to an ACD controller.
 	ValidSchemaCondition ConditionType = "ValidSchema"
 
 	// ValidConfigCondition documents whether the AddonConfig could be validated
@@ -78,6 +79,11 @@ const (
 	// ValidTargetCondition documents whether the AddonConfig has a valid target
 	// cluster
 	ValidTargetCondition ConditionType = "ValidTarget"
+
+	// ValidTemplateCondition documents whether the AddonConfigDefinition has a
+	// valid template for go templating.
+	// TODO(tvs): Move this validation in to an ACD controller
+	ValidTemplateCondition ConditionType = "ValidTemplate"
 )
 
 const (
@@ -94,6 +100,12 @@ const (
 	TargetNotDefinedMessage        string = "No target has been defined"
 	TargetNotUnique                string = "TargetNotUnique"
 	TargetNotUniqueMessage         string = "Selector identified more than one cluster"
+	InvalidTemplate                string = "InvalidTemplate"
+
+	// TODO(tvs): More detailed error messages for why they're invalid
+	TemplateParseErrorMessage               string = "Template is unable to be parsed"
+	TemplateDefinesSubTemplatesErrorMessage string = "Template is unable to define sub-templates"
+	TemplateRenderErrorMessage              string = "Template is unable to be rendered"
 )
 
 //+kubebuilder:object:root=true

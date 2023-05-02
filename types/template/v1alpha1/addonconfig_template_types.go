@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 // +kubebuilder:skip
+
 package internal
 
 import (
@@ -24,7 +25,7 @@ import (
 // AddonConfigTemplateVariables defines the structure used when rendering
 // an AddonConfigDefinition's template.
 type AddonConfigTemplateVariables struct {
-	// Default defines the default values that will be made available for
+	// Default defines the default variables that will be made available for
 	// templating. These variables must be available for dependency resolution
 	// (e.g., {{.Default.Cluster.Metadata.Name}} must be available for templating against
 	// dependency names)
@@ -33,12 +34,17 @@ type AddonConfigTemplateVariables struct {
 	// Dependencies defines the set of resolved dependencies from the
 	// AddonConfigDefinition
 	Dependencies map[string]interface{} `json:"dependencies" protobuf:"bytes,2,opt,name=dependencies"`
+
+	// Values defines the top-level interface for variables provided by the
+	// spec of the AddonConfig
+	Values interface{} `json:"values" protobuf:"bytes,3,opt,name=values"`
 }
 
 // AddonConfigTemplateDefaults are values that will be guaranteed for
 // templating. These variables must be available for dependency resolution.
 type AddonConfigTemplateDefaults struct {
 	// Cluster is CAPI cluster that is targeted during template rendering.
-	// TODO(tvs): Can we dodge this by using unstructured data instead?
+	// TODO(tvs): Can we dodge the CAPI import by using unstructured data
+	// instead?
 	Cluster clusterv1.Cluster `json:"cluster" protobuf:"bytes,1,opt,name=cluster"`
 }

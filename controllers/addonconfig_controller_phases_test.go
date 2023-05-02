@@ -31,43 +31,44 @@ import (
 
 // TODO(tvs): Expand on phase testing
 func TestAddonConfigReconcilePhases_validation(t *testing.T) {
-	t.Run("reconcile schema", func(t *testing.T) {
-		ac := &addonv1.AddonConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-addonconfig",
-				Namespace: "test-namespace",
+	ac := &addonv1.AddonConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-addonconfig",
+			Namespace: "test-namespace",
+		},
+		Spec: addonv1.AddonConfigSpec{
+			Type: "test-addonconfig-definition",
+			Values: apiextensionsv1.JSON{
+				Raw: []byte(`{"field": "foo"}`),
 			},
-			Spec: addonv1.AddonConfigSpec{
-				Type: "test-addonconfig-definition",
-				Values: apiextensionsv1.JSON{
-					Raw: []byte(`{"field": "foo"}`),
-				},
-			},
-		}
+		},
+	}
 
-		acd := &addonv1.AddonConfigDefinition{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "test-addonconfig-definition",
-			},
-			Spec: addonv1.AddonConfigDefinitionSpec{
-				Schema: &apiextensionsv1.CustomResourceValidation{
-					OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
-						Type: "object",
-						Properties: map[string]apiextensionsv1.JSONSchemaProps{
-							"field": {
-								Type: "string",
-							},
-							"defaultedField": {
-								Type: "string",
-								Default: &apiextensionsv1.JSON{
-									Raw: []byte(`"default"`),
-								},
+	acd := &addonv1.AddonConfigDefinition{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-addonconfig-definition",
+		},
+		Spec: addonv1.AddonConfigDefinitionSpec{
+			Schema: &apiextensionsv1.CustomResourceValidation{
+				OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
+					Type: "object",
+					Properties: map[string]apiextensionsv1.JSONSchemaProps{
+						"field": {
+							Type: "string",
+						},
+						"defaultedField": {
+							Type: "string",
+							Default: &apiextensionsv1.JSON{
+								Raw: []byte(`"default"`),
 							},
 						},
 					},
 				},
 			},
-		}
+		},
+	}
+
+	t.Run("reconcile schema", func(t *testing.T) {
 
 		tests := []struct {
 			name         string
@@ -78,7 +79,8 @@ func TestAddonConfigReconcilePhases_validation(t *testing.T) {
 		}{
 			{
 				name: "returns an error when the AddonConfigDefinition has no schema",
-				ac:   ac,
+				// NOTE: we copy these because phase reconciliation often changes conditions
+				ac: ac.DeepCopy(),
 				acd: &addonv1.AddonConfigDefinition{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-addonconfig-definition-empty",
@@ -88,7 +90,7 @@ func TestAddonConfigReconcilePhases_validation(t *testing.T) {
 			},
 			{
 				name:      "returns no error if the AddonConfigDefinition schema is convertible",
-				ac:        ac,
+				ac:        ac.DeepCopy(),
 				acd:       acd,
 				expectErr: false,
 			},
@@ -116,6 +118,9 @@ func TestAddonConfigReconcilePhases_validation(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("reconcile schema validation", func(t *testing.T) {
 	})
 }
 

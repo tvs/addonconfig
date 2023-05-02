@@ -52,7 +52,7 @@ import (
 //	E0309 00:14:47.141174       1 reflector.go:140] pkg/mod/k8s.io/client-go@v0.26.0/tools/cache/reflector.go:169: Failed to watch *v1alpha1.AddonConfigDefinition: failed to list *v1alpha1.AddonConfigDefinition: json: cannot unmarshal array into Go struct field JSONSchemaProps.items.spec.schema.openAPIV3Schema.properties of type v1.JSONSchemaProps
 //
 // Validating webhook would probably do the trick...
-func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, _ *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
+func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
 
 	// TODO(tvs): Consider extracting some of this to a typed context
 	internalValidation := &apiextensions.CustomResourceValidation{}
@@ -77,6 +77,8 @@ func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *add
 
 		res = util.LowestNonZeroResult(res, phaseResult)
 	}
+
+	tv.Values = ac.Spec.Values
 
 	return res, kerrors.NewAggregate(errs)
 }
@@ -311,8 +313,60 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *a
 	return ctrl.Result{}, nil
 }
 
-func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, ac *addonv1.AddonConfig, _ *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
-	// TODO(tvs): Reconcile template
+func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	if acd.Spec.Template != "" {
+		t, err := template.New("").Option("missingkey=error").Parse(acd.Spec.Template)
+		if err != nil {
+			conditions.MarkFalse(ac,
+				addonv1.ValidTemplateCondition,
+				addonv1.InvalidTemplate,
+				addonv1.ConditionSeverityError,
+				addonv1.TemplateParseErrorMessage)
+
+			return ctrl.Result{}, errors.Wrap(err, "Unable to parse template")
+		}
+
+		if len(t.Templates()) > 1 {
+			conditions.MarkFalse(ac,
+				addonv1.ValidTemplateCondition,
+				addonv1.InvalidTemplate,
+				addonv1.ConditionSeverityError,
+				addonv1.TemplateDefinesSubTemplatesErrorMessage)
+
+			return ctrl.Result{}, errors.Wrap(err, "Template does not support sub-templates")
+		}
+
+		var out bytes.Buffer
+		err = t.Execute(&out, tv)
+		if err != nil {
+			if isExecError(err) {
+				conditions.MarkFalse(ac,
+					addonv1.ValidTemplateCondition,
+					addonv1.InvalidTemplate,
+					addonv1.ConditionSeverityError,
+					err.Error())
+
+				return ctrl.Result{}, errors.Wrap(err, "Unable to render template")
+			}
+
+			conditions.MarkFalse(ac,
+				addonv1.ValidTemplateCondition,
+				addonv1.InvalidTemplate,
+				addonv1.ConditionSeverityError,
+				addonv1.TemplateRenderErrorMessage)
+
+			return ctrl.Result{}, errors.Wrap(err, "Unable to write template")
+
+		}
+
+		// TODO(tvs): Write template to resultant resource
+		log.Info("Successfully rendered template:\n", out.String())
+	}
+
+	conditions.MarkTrue(ac, addonv1.ValidTemplateCondition)
+
 	return ctrl.Result{}, nil
 }
 
@@ -322,13 +376,12 @@ func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTe
 	ls := &metav1.LabelSelector{}
 	if len(selector.MatchLabels) > 0 || len(selector.MatchExpressions) > 0 {
 		for k, v := range selector.MatchLabels {
-			var out bytes.Buffer
-
 			t, err := template.New("").Parse(v)
 			if err != nil {
 				return nil, errors.Wrap(err, "Target label selector could not be parsed")
 			}
 
+			var out bytes.Buffer
 			err = t.Execute(&out, tv)
 			if err != nil {
 				return nil, errors.Wrap(err, "Rendering template failed")
@@ -355,6 +408,11 @@ func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTe
 	}
 
 	return ls, nil
+}
+
+func isExecError(err error) bool {
+	_, ok := err.(template.ExecError)
+	return ok
 }
 
 // TODO(tvs): Clean up reconciliation logic so we only have to use this once
