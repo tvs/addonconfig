@@ -57,3 +57,17 @@ type Target struct {
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector" protobuf:"bytes,4,opt,name=selector"`
 }
+
+// OutputTarget defines a target resource version, kind and name to use when
+// writing a resource.
+type OutputTarget struct {
+	// API version of the target referent.
+	APIVersion string `json:"apiVersion" protobuf:"bytes,1,opt,name=apiVersion"`
+
+	// Kind of the target referent.
+	Kind string `json:"kind" protobuf:"bytes,2,opt,name=kind"`
+
+	// Name of the target referent.
+	// Mutually exclusive with the selector.
+	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
+}

@@ -23,7 +23,8 @@ import (
 
 // AddonConfigDefinitionSpec defines the desired state of AddonConfigDefinition
 type AddonConfigDefinitionSpec struct {
-	// Schema describes the schema used for validation, pruning, and defaulting of this version of the custom resource.
+	// Schema describes the schema used for validation, pruning, and defaulting
+	// of this version of the custom resource.
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Type="object"
@@ -34,8 +35,14 @@ type AddonConfigDefinitionSpec struct {
 	// +optional
 	Dependencies []AddonConfigDefinitionDependencies `json:"dependencies,omitempty" protobuf:"bytes,2,opt,name=dependencies"`
 
-	// Template describes the template used when marshalling the schema into an add-on usable format
+	// Template describes the template used when marshalling the schema into an
+	// add-on usable format
 	Template string `json:"template" protobuf:"bytes,3,opt,name=template"`
+
+	// TemplateTarget describes where and how to save the rendered template.
+	// Only supports `Secret` and `ConfigMap`
+	// TODO(tvs): Figure out how to include metadata on the resource
+	TemplateTarget OutputTarget `json:"templateTarget" protobuf:"bytes,4,opt,name=templateTarget"`
 }
 
 // AddonConfigDefinitionDependencies defines a named dependency for use during

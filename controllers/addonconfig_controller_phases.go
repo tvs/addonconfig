@@ -53,6 +53,7 @@ import (
 //
 // Validating webhook would probably do the trick...
 func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
 
 	// TODO(tvs): Consider extracting some of this to a typed context
 	internalValidation := &apiextensions.CustomResourceValidation{}
@@ -79,6 +80,8 @@ func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *add
 	}
 
 	tv.Values = ac.Spec.Values
+	conditions.MarkTrue(ac, addonv1.ValidConfigCondition)
+	log.Info("Validated AddonConfig against AddonConfigDefinition successfully", "addonConfig.Name", ac.Name, "addonConfig.Namespace", ac.Namespace, "addonConfigDefinition.Name", acd.Name)
 
 	return res, kerrors.NewAggregate(errs)
 }
@@ -115,6 +118,7 @@ func (r *AddonConfigReconciler) reconcileSchema(ctx context.Context, ac *addonv1
 	}
 
 	conditions.MarkTrue(ac, addonv1.ValidSchemaCondition)
+
 	return ctrl.Result{}, nil
 }
 
@@ -149,9 +153,6 @@ func (r *AddonConfigReconciler) reconcileSchemaValidation(ctx context.Context, a
 	// TODO(tvs): Test eliminating FieldErrors
 	ac.Status.FieldErrors = make(map[string]addonv1.FieldError, 0)
 
-	log.Info("Validated AddonConfig against AddonConfigDefinition successfully", "addonConfig.Name", ac.Name, "addonConfig.Namespace", ac.Namespace, "addonConfigDefinition.Name", acd.Name)
-	conditions.MarkTrue(ac, addonv1.ValidConfigCondition)
-
 	return ctrl.Result{}, nil
 }
 
@@ -182,6 +183,16 @@ func (r *AddonConfigReconciler) reconcileSchemaDefaulting(ctx context.Context, a
 			return ctrl.Result{}, errors.Wrap(err, "unable to encode defaulted JSON")
 		}
 
+		// TODO(tvs): Weigh the pros and cons of rendered defaults:
+		//    * Rendering defaults make future upgrades safer as there is no change
+		//      in configuration.
+		//    * Rendering defaults means that users have to intervene to update
+		//      values to take new defaults.
+		//    * Not rendering defaults means that users don't have to intervene
+		//      when rebasing to a new AddonConfigDefinition.
+		//    * Not rendering defaults means that addon configuration might change
+		//      when rebasing to a new AddonConfigDefinition.
+		// Persist defaulted values back to the AddonConfig
 		if err := ac.Spec.Values.UnmarshalJSON(buf.Bytes()); err != nil {
 			defaultingInternalError(ac)
 			return ctrl.Result{}, errors.Wrap(err, "unable to unmarshal the defaulted JSON")
@@ -191,6 +202,7 @@ func (r *AddonConfigReconciler) reconcileSchemaDefaulting(ctx context.Context, a
 		defaultingInternalError(ac)
 		return ctrl.Result{}, errors.Wrap(err, "unable to convert internal schema to structural")
 	}
+
 	conditions.MarkTrue(ac, addonv1.DefaultingCompleteCondition)
 	log.Info("Filled out default values for AddonConfig based on AddonConfigDefinition")
 
@@ -245,6 +257,7 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
+		// TODO(tvs): Handle multi-cluster selection
 		if len(clusterList.Items) > 1 {
 			conditions.MarkFalse(ac,
 				addonv1.ValidTargetCondition,
