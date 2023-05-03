@@ -19,6 +19,7 @@ limitations under the License.
 package internal
 
 import (
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
@@ -37,8 +38,31 @@ type AddonConfigTemplateVariables struct {
 
 	// Values defines the top-level interface for variables provided by the
 	// spec of the AddonConfig
-	Values interface{} `json:"values" protobuf:"bytes,3,opt,name=values"`
+	Values map[string]interface{} `json:"values" protobuf:"bytes,3,opt,name=values"`
 }
+
+var (
+	InfrastructureRefVSphere    = schema.GroupKind{Group: "infrastructure.cluster.x-k8s.io", Kind: "VSphereCluster"}
+	InfrastructureRefSupervisor = schema.GroupKind{Group: "vmware.infrastructure.cluster.x-k8s.io", Kind: "VSphereCluster"}
+	InfrastructureRefAWS        = schema.GroupKind{Group: "infrastructure.cluster.x-k8s.io", Kind: "AWSCluster"}
+	InfrastructureRefAzure      = schema.GroupKind{Group: "infrastructure.cluster.x-k8s.io", Kind: "AzureCluster"}
+	InfrastructureRefDocker     = schema.GroupKind{Group: "infrastructure.cluster.x-k8s.io", Kind: "DockerCluster"}
+	InfrastructureRefOCI        = schema.GroupKind{Group: "infrastructure.cluster.x-k8s.io", Kind: "OCICluster"}
+)
+
+// InfrastructureProviderType is a supported form of infrastructure provider
+type InfrastructureProvider string
+
+const (
+	InfrastructureProviderVSphere = InfrastructureProvider("vsphere")
+	// TODO(tvs): Supervisor should probably be its own distinct type...
+	InfrastructureProviderSupervisor = InfrastructureProvider("vsphere")
+	InfrastructureProviderAWS        = InfrastructureProvider("aws")
+	InfrastructureProviderAzure      = InfrastructureProvider("azure")
+	InfrastructureProviderDocker     = InfrastructureProvider("docker")
+	InfrastructureProviderOCI        = InfrastructureProvider("oci")
+	InfrastructureProviderUnknown    = InfrastructureProvider("unknown")
+)
 
 // AddonConfigTemplateDefaults are values that will be guaranteed for
 // templating. These variables must be available for dependency resolution.
@@ -47,4 +71,8 @@ type AddonConfigTemplateDefaults struct {
 	// TODO(tvs): Can we dodge the CAPI import by using unstructured data
 	// instead?
 	Cluster clusterv1.Cluster `json:"cluster" protobuf:"bytes,1,opt,name=cluster"`
+
+	// Infrastructure is a simplified infrastructure name representing the type
+	// of InfrastructureRef provided in the Cluster
+	Infrastructure InfrastructureProvider `json:"infrastructure" protobuf:"bytes,2,opt,name=infrastructure"`
 }

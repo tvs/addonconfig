@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	addonv1 "github.com/tvs/addonconfig/api/v1alpha1"
+	templatev1 "github.com/tvs/addonconfig/types/template/v1alpha1"
 )
 
 const (
@@ -346,4 +347,27 @@ func IsNil(i interface{}) bool {
 		return reflect.ValueOf(i).IsValid() && reflect.ValueOf(i).IsNil()
 	}
 	return false
+}
+
+// GetInfrastructureProvider fetches the template InfrastructureProvider type
+// from a given API version and kind
+func GetInfrastructureProvider(apiVersion, kind string) templatev1.InfrastructureProvider {
+	gvk := schema.FromAPIVersionAndKind(apiVersion, kind)
+
+	switch gvk.GroupKind() {
+	case templatev1.InfrastructureRefVSphere:
+		return templatev1.InfrastructureProviderVSphere
+	case templatev1.InfrastructureRefSupervisor:
+		return templatev1.InfrastructureProviderSupervisor
+	case templatev1.InfrastructureRefAWS:
+		return templatev1.InfrastructureProviderAWS
+	case templatev1.InfrastructureRefAzure:
+		return templatev1.InfrastructureProviderAzure
+	case templatev1.InfrastructureRefDocker:
+		return templatev1.InfrastructureProviderDocker
+	case templatev1.InfrastructureRefOCI:
+		return templatev1.InfrastructureProviderOCI
+	}
+
+	return templatev1.InfrastructureProviderUnknown
 }

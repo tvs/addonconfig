@@ -71,7 +71,8 @@ func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *add
 			errs = append(errs, err)
 		}
 
-		// Exit early if there's an error
+		// Even if there's an error, we want to continue so that other conditions
+		// can be populated
 		if len(errs) > 0 {
 			continue
 		}
@@ -79,8 +80,10 @@ func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *add
 		res = util.LowestNonZeroResult(res, phaseResult)
 	}
 
-	tv.Values = ac.Spec.Values
-	conditions.MarkTrue(ac, addonv1.ValidConfigCondition)
+	if len(errs) == 0 {
+		conditions.MarkTrue(ac, addonv1.ValidConfigCondition)
+	}
+
 	log.Info("Validated AddonConfig against AddonConfigDefinition successfully", "addonConfig.Name", ac.Name, "addonConfig.Namespace", ac.Namespace, "addonConfigDefinition.Name", acd.Name)
 
 	return res, kerrors.NewAggregate(errs)
@@ -88,6 +91,26 @@ func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, ac *add
 
 func (r *AddonConfigReconciler) reconcileSchema(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, iv *apiextensions.CustomResourceValidation) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	acdKey := client.ObjectKey{Namespace: "", Name: ac.Spec.Type}
+	if err := r.Client.Get(ctx, acdKey, acd); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Could not find AddonConfigDefinition for AddonConfig, requeuing", "refName", acdKey.Name)
+
+			// Unable to find an addon config, can't report that we've observed any
+			// generation. Reset to a negative value to eliminate any straggling
+			// values
+			ac.Status.ObservedSchemaGeneration = -1
+
+			conditions.MarkFalse(ac,
+				addonv1.ValidSchemaCondition,
+				addonv1.SchemaNotFound,
+				addonv1.ConditionSeverityError,
+				addonv1.SchemaNotFoundMessage, acdKey.Name)
+
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+	}
 
 	// Update the last observed generation of the schema
 	ac.Status.ObservedSchemaGeneration = acd.GetGeneration()
@@ -144,8 +167,7 @@ func (r *AddonConfigReconciler) reconcileSchemaValidation(ctx context.Context, a
 			addonv1.ConditionSeverityError,
 			addonv1.InvalidConfigMessage)
 
-		// This isn't really an error, so we just need to requeue
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{}, errs.ToAggregate()
 	}
 
 	// Explicitly reset the FieldErrors if nothing came up so we don't leave
@@ -209,16 +231,30 @@ func (r *AddonConfigReconciler) reconcileSchemaDefaulting(ctx context.Context, a
 	return ctrl.Result{}, nil
 }
 
+func (r *AddonConfigReconciler) reconcileTemplateValues(ctx context.Context, ac *addonv1.AddonConfig, _ *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
+
+	// TODO(tvs): Figure out if we really have to marshal this to a map or not
+	var valueMap map[string]interface{}
+	jsonVal, err := json.Marshal(ac.Spec.Values)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "Unable to marshal addonconfig values to json")
+	}
+
+	if err = json.Unmarshal(jsonVal, &valueMap); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "Unable to unmarshal addonconfig value json to map")
+	}
+
+	tv.Values = valueMap
+
+	return ctrl.Result{}, nil
+}
+
 func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1.AddonConfig, _ *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	target := ac.Spec.Target
-	selector, err := metav1.LabelSelectorAsSelector(target.Selector)
-	if err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "unable to convert AddonConfig's LabelSelector into Selector")
-	}
 
-	if target.Name == "" && selector.Empty() {
+	if target.Name == "" && target.Selector == nil {
 		log.Info("AddonConfig does not define a target")
 		conditions.MarkFalse(ac,
 			addonv1.ValidTargetCondition,
@@ -226,17 +262,29 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 			addonv1.ConditionSeverityError,
 			addonv1.TargetNotDefinedMessage)
 
+		// No target identified isn't necessarily an error. May crop up as a
+		// templating error later.
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	// TODO(tvs): This should be prevented by a validating webhook
-	if target.Name != "" && !selector.Empty() {
+	if target.Name != "" && target.Selector != nil {
 		log.Info("AddonConfig defines a target with both a name and selector")
+		conditions.MarkFalse(ac,
+			addonv1.ValidTargetCondition,
+			addonv1.TargetCoDefined,
+			addonv1.ConditionSeverityError,
+			addonv1.TargetCoDefinedMessage)
+
 		return ctrl.Result{}, errors.New("AddonConfig has both a label selector and explicit cluster name")
 	}
 
 	var cluster *clusterv1.Cluster
-	if !selector.Empty() {
+	if target.Selector != nil {
+		selector, err := metav1.LabelSelectorAsSelector(target.Selector)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "unable to convert AddonConfig's LabelSelector into Selector")
+		}
 		var clusterList clusterv1.ClusterList
 		if err := r.Client.List(
 			ctx,
@@ -254,6 +302,8 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 				addonv1.ConditionSeverityError,
 				addonv1.TargetNotDefinedMessage)
 
+			// No target identified isn't necessarily an error. May crop up as a
+			// templating error later.
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
@@ -265,11 +315,14 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 				addonv1.ConditionSeverityError,
 				addonv1.TargetNotUniqueMessage)
 
+			// No target identified isn't necessarily an error. May crop up as a
+			// templating error later.
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		cluster = &clusterList.Items[0]
 	} else {
+		var err error
 		cluster, err = capiutil.GetClusterByName(ctx, r.Client, ac.GetNamespace(), target.Name)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
@@ -282,11 +335,32 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 				addonv1.ConditionSeverityError,
 				addonv1.TargetNotFoundMessage)
 
+			// No target identified isn't necessarily an error. May crop up as a
+			// templating error later.
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 	}
 
+	infraType := util.GetInfrastructureProvider(
+		cluster.Spec.InfrastructureRef.APIVersion,
+		cluster.Spec.InfrastructureRef.Kind)
+
+	// TODO(tvs): Do we really want to deal with having to provide this plumbing
+	// for every infrastructure type we deign to support? Seems like we should
+	// find a better way to convert the InfrastructureRef to a provider type that
+	// doesn't necessitate plumbing in supported types
+	if infraType == templatev1.InfrastructureProviderUnknown {
+		conditions.MarkFalse(ac,
+			addonv1.ValidTargetCondition,
+			addonv1.TargetUnsupported,
+			addonv1.ConditionSeverityError,
+			addonv1.TargetUnsupportedMessage)
+
+		return ctrl.Result{}, errors.New("cluster has an infrastructure reference of an unsupported type")
+	}
+
 	tv.Default.Cluster = *cluster
+	tv.Default.Infrastructure = infraType
 	conditions.MarkTrue(ac, addonv1.ValidTargetCondition)
 
 	return ctrl.Result{}, nil
@@ -299,23 +373,24 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *a
 		target := dep.Target
 
 		// TODO(tvs): This should be prevented by a validating webhook
-		if target.Name != "" && len(target.Selector.MatchLabels) > 0 {
+		if target.Name != "" && target.Selector == nil {
 			log.Info("Dependency defines a target with both a name and selector", "dependencyName", dep.Name)
 			return ctrl.Result{}, errors.New("Dependency target has both name and a label selector")
 		}
 
-		// Render our label selector and expressions
-		ls, err := renderSelector(target.Selector, tv)
-		if err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "unable to render target selector")
-		}
+		if target.Selector != nil {
+			// Render our label selector and expressions
+			ls, err := renderSelector(target.Selector, tv)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "unable to render target selector")
+			}
 
-		selector, err := metav1.LabelSelectorAsSelector(ls)
-		if err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
-		}
+			selector, err := metav1.LabelSelectorAsSelector(ls)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
+			}
 
-		if !selector.Empty() {
+			log.Info("Selector", selector)
 			// TODO(tvs): Fetch resource based on selector
 		} else {
 			// TODO(tvs): Fetch resource based on name
@@ -357,7 +432,7 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, ac *addon
 			if isExecError(err) {
 				conditions.MarkFalse(ac,
 					addonv1.ValidTemplateCondition,
-					addonv1.InvalidTemplate,
+					addonv1.FailedRendering,
 					addonv1.ConditionSeverityError,
 					err.Error())
 
@@ -375,7 +450,7 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, ac *addon
 		}
 
 		// TODO(tvs): Write template to resultant resource
-		log.Info("Successfully rendered template:\n", out.String())
+		log.Info("Successfully rendered template:", "render", out.String())
 	}
 
 	conditions.MarkTrue(ac, addonv1.ValidTemplateCondition)
@@ -402,22 +477,23 @@ func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTe
 			ls.MatchLabels[k] = out.String()
 		}
 
-		ls.MatchExpressions = selector.MatchExpressions
-		for _, e := range selector.MatchExpressions {
-			var out bytes.Buffer
+		// TODO(tvs): This can be removed if we choose not to render matchLabel keys
+		//ls.MatchExpressions = selector.MatchExpressions
+		//for _, e := range selector.MatchExpressions {
+		//	var out bytes.Buffer
 
-			t, err := template.New("").Parse(e.Key)
-			if err != nil {
-				return nil, errors.Wrap(err, "Target label expression could not be parsed")
-			}
+		//	t, err := template.New("").Parse(e.Key)
+		//	if err != nil {
+		//		return nil, errors.Wrap(err, "Target label expression could not be parsed")
+		//	}
 
-			err = t.Execute(&out, tv)
-			if err != nil {
-				return nil, errors.Wrap(err, "Rendering template failed")
-			}
+		//	err = t.Execute(&out, tv)
+		//	if err != nil {
+		//		return nil, errors.Wrap(err, "Rendering template failed")
+		//	}
 
-			e.Key = out.String()
-		}
+		//	e.Key = out.String()
+		//}
 	}
 
 	return ls, nil

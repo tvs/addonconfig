@@ -98,9 +98,14 @@ const (
 	TargetNotFound                 string = "TargetNotFound"
 	TargetNotFoundMessage          string = "No target has been found"
 	TargetNotDefinedMessage        string = "No target has been defined"
+	TargetCoDefined                string = "TargetCoDefined"
+	TargetCoDefinedMessage         string = "Target has been defined with both a name and selector"
 	TargetNotUnique                string = "TargetNotUnique"
 	TargetNotUniqueMessage         string = "Selector identified more than one cluster"
+	TargetUnsupported              string = "TargetUnsupported"
+	TargetUnsupportedMessage       string = "Target infrastructure type is unsupported"
 	InvalidTemplate                string = "InvalidTemplate"
+	FailedRendering                string = "FailedRendering"
 
 	// TODO(tvs): More detailed error messages for why they're invalid
 	TemplateParseErrorMessage               string = "Template is unable to be parsed"

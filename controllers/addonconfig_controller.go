@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -67,10 +66,7 @@ func (r *AddonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Always attempt to patch the AddonConfig status after each reconciliation
 	defer func() {
-		patchOpts := []patch.Option{}
-		if reterr == nil {
-			patchOpts = append(patchOpts, patch.WithStatusObservedGeneration{})
-		}
+		patchOpts := []patch.Option{patch.WithStatusObservedGeneration{}}
 
 		if err := patchAddonConfig(ctx, patchHelper, addonConfig, patchOpts...); err != nil {
 			reterr = kerrors.NewAggregate([]error{reterr, err})
@@ -89,28 +85,14 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 		return ctrl.Result{}, nil
 	}
 
-	addonConfigDefinition := &addonv1.AddonConfigDefinition{}
-	acdKey := client.ObjectKey{Namespace: "", Name: addonConfig.Spec.Type}
-	if err := r.Client.Get(ctx, acdKey, addonConfigDefinition); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("Could not find AddonConfigDefinition for AddonConfig, requeuing", "refName", acdKey.Name)
-
-			conditions.MarkFalse(addonConfig,
-				addonv1.ValidSchemaCondition,
-				addonv1.SchemaNotFound,
-				addonv1.ConditionSeverityError,
-				addonv1.SchemaNotFoundMessage, acdKey.Name)
-
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-	}
-
 	// TODO(tvs): Consider extracting some of this to a typed context
+	addonConfigDefinition := &addonv1.AddonConfigDefinition{}
 	templateVariables := &templatev1.AddonConfigTemplateVariables{}
 	phases := []func(context.Context, *addonv1.AddonConfig, *addonv1.AddonConfigDefinition, *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error){
 		r.reconcileValidation,
 		r.reconcileTarget,
 		r.reconcileDependencies,
+		r.reconcileTemplateValues,
 		r.reconcileTemplate,
 	}
 
@@ -122,7 +104,8 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 			errs = append(errs, err)
 		}
 
-		// Exit early if there's an error
+		// Even if there's an error, we want to continue so that other conditions
+		// can be populated
 		if len(errs) > 0 {
 			continue
 		}
@@ -171,6 +154,8 @@ func patchAddonConfig(ctx context.Context, patchHelper *patch.Helper, addonConfi
 			addonv1.ValidSchemaCondition,
 			addonv1.ValidConfigCondition,
 			addonv1.DefaultingCompleteCondition,
+			addonv1.ValidTargetCondition,
+			addonv1.ValidTemplateCondition,
 		),
 	)
 
@@ -179,7 +164,11 @@ func patchAddonConfig(ctx context.Context, patchHelper *patch.Helper, addonConfi
 			addonv1.ReadyCondition,
 			addonv1.ValidSchemaCondition,
 			addonv1.ValidConfigCondition,
+			addonv1.DefaultingCompleteCondition,
+			addonv1.ValidTargetCondition,
+			addonv1.ValidTemplateCondition,
 		}},
 	)
+
 	return patchHelper.Patch(ctx, addonConfig, options...)
 }

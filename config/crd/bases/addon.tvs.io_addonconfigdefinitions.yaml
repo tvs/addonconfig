@@ -129,8 +129,28 @@ spec:
                 description: Template describes the template used when marshalling
                   the schema into an add-on usable format
                 type: string
+              templateTarget:
+                description: 'TemplateTarget describes where and how to save the rendered
+                  template. Only supports `Secret` and `ConfigMap` TODO(tvs): Figure
+                  out how to include metadata on the resource'
+                properties:
+                  apiVersion:
+                    description: API version of the target referent.
+                    type: string
+                  kind:
+                    description: Kind of the target referent.
+                    type: string
+                  name:
+                    description: Name of the target referent. Mutually exclusive with
+                      the selector.
+                    type: string
+                required:
+                - apiVersion
+                - kind
+                type: object
             required:
             - template
+            - templateTarget
             type: object
           status:
             description: AddonConfigDefinitionStatus defines the observed state of
