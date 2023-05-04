@@ -3,6 +3,19 @@ kind: AddonConfigDefinition
 metadata:
   name: antrea
 spec:
+  dependencies:
+    - name: mySecret
+      target:
+        apiVersion: v1
+        kind: Secret
+        name: my-big-secret
+    - name: myMachineDeployment
+      target:
+        apiVersion: cluster.x-k8s.io/v1beta1
+        kind: MachineDeployment
+        selector:
+          matchLabels:
+            cluster.x-k8s.io/cluster-name: "{{index .Default.Cluster.metadata.name}}"
   schema:
     openAPIV3Schema:
       type: object
@@ -52,6 +65,9 @@ spec:
     infraProvider: {{.Default.Infrastructure}}
     antrea:
       config:
+        myClusterName: {{index .Default.Cluster.metadata.name}}
+        secretRelatedField: {{index .Dependencies.mySecret.metadata.name}}}
+        mdRelatedField: {{index .Dependencies.myMachineDeployment.spec.template.spec.bootstrap.configRef.name}}}
         trafficEncapMode: {{.Values.trafficEncapMode}}
         noSNAT: {{.Values.noSNAT}}
         disableUdpTunnelOffload: {{.Values.disableUdpTunnelOffload}}

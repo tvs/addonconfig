@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
@@ -30,9 +31,11 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/json"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/external"
 	capiutil "sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -361,6 +364,7 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 
 	tv.Default.Cluster = *cluster
 	tv.Default.Infrastructure = infraType
+
 	conditions.MarkTrue(ac, addonv1.ValidTargetCondition)
 
 	return ctrl.Result{}, nil
@@ -369,11 +373,17 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	var err error
+
+	tv.Dependencies = make(map[string]interface{}, len(acd.Spec.Dependencies))
+
 	for _, dep := range acd.Spec.Dependencies {
+		var obj *unstructured.Unstructured
+
 		target := dep.Target
 
 		// TODO(tvs): This should be prevented by a validating webhook
-		if target.Name != "" && target.Selector == nil {
+		if target.Name != "" && target.Selector != nil {
 			log.Info("Dependency defines a target with both a name and selector", "dependencyName", dep.Name)
 			return ctrl.Result{}, errors.New("Dependency target has both name and a label selector")
 		}
@@ -390,12 +400,35 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *a
 				return ctrl.Result{}, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
 			}
 
-			log.Info("Selector", selector)
-			// TODO(tvs): Fetch resource based on selector
+			var objectList unstructured.UnstructuredList
+			objectList.SetAPIVersion(target.APIVersion)
+			objectList.SetKind(target.Kind)
+
+			if err := r.Client.List(
+				ctx,
+				&objectList,
+				client.MatchingLabelsSelector{Selector: selector},
+				client.InNamespace(ac.GetNamespace()),
+			); err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "failed to list dependencies matching the specified selector")
+			}
+
+			if len(objectList.Items) == 0 {
+				return ctrl.Result{}, errors.Wrap(err, "unable to find any dependency matching the specified selector")
+			}
+
+			if len(objectList.Items) >= 1 {
+				obj = &objectList.Items[0]
+			}
 		} else {
-			// TODO(tvs): Fetch resource based on name
+			objRef := &v1.ObjectReference{Kind: target.Kind, Namespace: ac.GetNamespace(), Name: target.Name, APIVersion: target.APIVersion}
+			obj, err = external.Get(ctx, r.Client, objRef, ac.GetNamespace())
+			if err != nil {
+				return ctrl.Result{}, errors.Wrapf(err, "unable to find object %s/%s", ac.GetNamespace(), target.Name)
+			}
 		}
 
+		tv.Dependencies[dep.Name] = obj.UnstructuredContent()
 	}
 
 	return ctrl.Result{}, nil
@@ -462,6 +495,7 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, ac *addon
 // values?
 func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTemplateVariables) (*metav1.LabelSelector, error) {
 	ls := &metav1.LabelSelector{}
+	ls.MatchLabels = make(map[string]string)
 	if len(selector.MatchLabels) > 0 || len(selector.MatchExpressions) > 0 {
 		for k, v := range selector.MatchLabels {
 			t, err := template.New("").Parse(v)
