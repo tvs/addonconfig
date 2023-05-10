@@ -389,8 +389,6 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	var err error
-
 	tv.Dependencies = make(map[string]interface{}, len(acd.Spec.Dependencies))
 
 	for _, dep := range acd.Spec.Dependencies {
@@ -432,11 +430,23 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *a
 			if len(objectList.Items) == 0 {
 				return ctrl.Result{}, errors.Wrap(err, "unable to find any dependency matching the specified selector")
 			}
-
-			if len(objectList.Items) >= 1 {
+			if len(objectList.Items) == 1 {
 				obj = &objectList.Items[0]
+			} else {
+				return ctrl.Result{}, errors.New("multiple dependency resources matched the label selector")
 			}
 		} else {
+			t, err := template.New("").Parse(target.Name)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "Target name could not be parsed")
+			}
+			var out bytes.Buffer
+			err = t.Execute(&out, tv)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "Rendering template failed")
+			}
+			target.Name = out.String()
+
 			objRef := &v1.ObjectReference{Kind: target.Kind, Namespace: ac.GetNamespace(), Name: target.Name, APIVersion: target.APIVersion}
 			obj, err = external.Get(ctx, r.Client, objRef, ac.GetNamespace())
 			if err != nil {
