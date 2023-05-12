@@ -20,7 +20,6 @@ package internal
 
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // AddonConfigTemplateVariables defines the structure used when rendering
@@ -70,7 +69,7 @@ type AddonConfigTemplateDefaults struct {
 	// Cluster is CAPI cluster that is targeted during template rendering.
 	// TODO(tvs): Can we dodge the CAPI import by using unstructured data
 	// instead?
-	Cluster clusterv1.Cluster `json:"cluster" protobuf:"bytes,1,opt,name=cluster"`
+	Cluster map[string]interface{} `json:"cluster" protobuf:"bytes,1,opt,name=cluster"`
 
 	// Infrastructure is a simplified infrastructure name representing the type
 	// of InfrastructureRef provided in the Cluster

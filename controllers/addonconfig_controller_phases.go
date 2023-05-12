@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
@@ -30,10 +31,10 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/json"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	capiutil "sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/controllers/external"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -41,6 +42,11 @@ import (
 	templatev1 "github.com/tvs/addonconfig/types/template/v1alpha1"
 	"github.com/tvs/addonconfig/util"
 	"github.com/tvs/addonconfig/util/conditions"
+)
+
+const (
+	ClusterKind       = "Cluster"
+	ClusterAPIVersion = "cluster.x-k8s.io/v1beta1"
 )
 
 // TODO(tvs): Extract some of this to an AddonConfigDefinition controller
@@ -279,13 +285,16 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 		return ctrl.Result{}, errors.New("AddonConfig has both a label selector and explicit cluster name")
 	}
 
-	var cluster *clusterv1.Cluster
+	var unstructuredCluster *unstructured.Unstructured
 	if target.Selector != nil {
 		selector, err := metav1.LabelSelectorAsSelector(target.Selector)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "unable to convert AddonConfig's LabelSelector into Selector")
 		}
-		var clusterList clusterv1.ClusterList
+
+		var clusterList unstructured.UnstructuredList
+		clusterList.SetAPIVersion(ClusterAPIVersion)
+		clusterList.SetKind(ClusterKind)
 		if err := r.Client.List(
 			ctx,
 			&clusterList,
@@ -320,13 +329,15 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
-		cluster = &clusterList.Items[0]
+		unstructuredCluster = &clusterList.Items[0]
 	} else {
 		var err error
-		cluster, err = capiutil.GetClusterByName(ctx, r.Client, ac.GetNamespace(), target.Name)
+
+		objRef := &v1.ObjectReference{Kind: ClusterKind, Namespace: ac.GetNamespace(), Name: target.Name, APIVersion: ClusterAPIVersion}
+		unstructuredCluster, err = external.Get(ctx, r.Client, objRef, ac.GetNamespace())
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, errors.Wrap(err, "failed to retrieve clusters")
+				return ctrl.Result{}, errors.Wrap(err, "failed to retrieve the target cluster object")
 			}
 
 			conditions.MarkFalse(ac,
@@ -341,9 +352,17 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 		}
 	}
 
-	infraType := util.GetInfrastructureProvider(
-		cluster.Spec.InfrastructureRef.APIVersion,
-		cluster.Spec.InfrastructureRef.Kind)
+	infrastructureRefAPIVersion, _, err := unstructured.NestedString(unstructuredCluster.Object, "spec", "infrastructureRef", "apiVersion")
+	if err != nil {
+		return ctrl.Result{}, errors.New("unable to find the value of the nested field spec.infrastructureRef.apiVersion in the target cluster")
+	}
+
+	infrastructureRefKind, _, err := unstructured.NestedString(unstructuredCluster.Object, "spec", "infrastructureRef", "kind")
+	if err != nil {
+		return ctrl.Result{}, errors.New("unable to find the value of the nested field spec.infrastructureRef.kind in the target cluster")
+	}
+
+	infraType := util.GetInfrastructureProvider(infrastructureRefAPIVersion, infrastructureRefKind)
 
 	// TODO(tvs): Do we really want to deal with having to provide this plumbing
 	// for every infrastructure type we deign to support? Seems like we should
@@ -359,8 +378,9 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 		return ctrl.Result{}, errors.New("cluster has an infrastructure reference of an unsupported type")
 	}
 
-	tv.Default.Cluster = *cluster
+	tv.Default.Cluster = unstructuredCluster.UnstructuredContent()
 	tv.Default.Infrastructure = infraType
+
 	conditions.MarkTrue(ac, addonv1.ValidTargetCondition)
 
 	return ctrl.Result{}, nil
@@ -369,11 +389,15 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, ac *addonv1
 func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *addonv1.AddonConfig, acd *addonv1.AddonConfigDefinition, tv *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	tv.Dependencies = make(map[string]interface{}, len(acd.Spec.Dependencies))
+
 	for _, dep := range acd.Spec.Dependencies {
+		var obj *unstructured.Unstructured
+
 		target := dep.Target
 
 		// TODO(tvs): This should be prevented by a validating webhook
-		if target.Name != "" && target.Selector == nil {
+		if target.Name != "" && target.Selector != nil {
 			log.Info("Dependency defines a target with both a name and selector", "dependencyName", dep.Name)
 			return ctrl.Result{}, errors.New("Dependency target has both name and a label selector")
 		}
@@ -390,12 +414,47 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, ac *a
 				return ctrl.Result{}, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
 			}
 
-			log.Info("Selector", selector)
-			// TODO(tvs): Fetch resource based on selector
+			var objectList unstructured.UnstructuredList
+			objectList.SetAPIVersion(target.APIVersion)
+			objectList.SetKind(target.Kind)
+
+			if err := r.Client.List(
+				ctx,
+				&objectList,
+				client.MatchingLabelsSelector{Selector: selector},
+				client.InNamespace(ac.GetNamespace()),
+			); err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "failed to list dependencies matching the specified selector")
+			}
+
+			if len(objectList.Items) == 0 {
+				return ctrl.Result{}, errors.Wrap(err, "unable to find any dependency matching the specified selector")
+			}
+			if len(objectList.Items) == 1 {
+				obj = &objectList.Items[0]
+			} else {
+				return ctrl.Result{}, errors.New("multiple dependency resources matched the label selector")
+			}
 		} else {
-			// TODO(tvs): Fetch resource based on name
+			t, err := template.New("").Parse(target.Name)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "Target name could not be parsed")
+			}
+			var out bytes.Buffer
+			err = t.Execute(&out, tv)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "Rendering template failed")
+			}
+			target.Name = out.String()
+
+			objRef := &v1.ObjectReference{Kind: target.Kind, Namespace: ac.GetNamespace(), Name: target.Name, APIVersion: target.APIVersion}
+			obj, err = external.Get(ctx, r.Client, objRef, ac.GetNamespace())
+			if err != nil {
+				return ctrl.Result{}, errors.Wrapf(err, "unable to find object %s/%s", ac.GetNamespace(), target.Name)
+			}
 		}
 
+		tv.Dependencies[dep.Name] = obj.UnstructuredContent()
 	}
 
 	return ctrl.Result{}, nil
@@ -462,6 +521,7 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, ac *addon
 // values?
 func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTemplateVariables) (*metav1.LabelSelector, error) {
 	ls := &metav1.LabelSelector{}
+	ls.MatchLabels = make(map[string]string)
 	if len(selector.MatchLabels) > 0 || len(selector.MatchExpressions) > 0 {
 		for k, v := range selector.MatchLabels {
 			t, err := template.New("").Parse(v)
