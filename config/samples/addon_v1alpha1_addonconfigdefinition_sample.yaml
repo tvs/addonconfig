@@ -1,0 +1,56 @@
+apiVersion: addon.tvs.io/v1alpha1
+kind: AddonConfigDefinition
+metadata:
+  name: sample
+spec:
+  dependencies:
+    - name: myStaticDependency
+      target:
+        apiVersion: v1
+        kind: Secret
+        name: my-big-secret
+    - name: myDynamicDependency
+      target:
+        apiVersion: v1
+        kind: Secret
+        selector:
+          matchLabels:
+            cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
+          matchExpressions:
+            - { key: foo, operator: In, values: ["{{.Default.Infrastructure}}"] }
+    - name: myChainDependency
+      target:
+        apiVersion: v1
+        kind: Secret
+        selector:
+          matchLabels:
+            foo: "{{.Dependencies.myStaticDependency.data.foo}}"
+  schema:
+    openAPIV3Schema:
+      type: object
+      properties:
+        foo:
+          type: string
+          pattern: ^[a-z]{3,}-[0-9]{3,}$
+          default: "abc-123"
+          description: "foo defines a thing that does a foo"
+        bar:
+          type: object
+          properties:
+            baz:
+              type: boolean
+              default: true
+      required:
+        - foo
+  templateTarget:
+    apiVersion: v1
+    kind: Secret
+    name: "{{.Default.Cluster.Metadata.Name}}-antrea-values"
+  template: |
+    config.yml: | 
+      infraProvider: {{.Default.Infrastructure}}
+      foo: {{.Values.foo}}
+      baz: {{.Values.bar.baz}}
+      staticdep: {{.Dependencies.myStaticDependency.data}}
+      dynamicdep: {{.Dependencies.myDynamicDependency.metadata.name}}
+      chaindep: {{.Dependencies.myChainDependency.metadata.name}}
