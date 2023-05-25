@@ -1,0 +1,12 @@
+apiVersion: addon.tvs.io/v1alpha1
+kind: AddonConfig
+metadata:
+  name: sample-config
+spec:
+  type: sample
+  target:
+    name: my-cluster
+  values:
+    foo: def-456
+    bar:
+      baz: false

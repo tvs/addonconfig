@@ -99,7 +99,7 @@ func GetAddonConfigsByType(ctx context.Context, c client.Client, name string) ([
 
 	list := make([]addonv1.AddonConfig, 0, len(fullList.Items))
 	for _, a := range fullList.Items {
-		if a.Spec.Type == name {
+		if a.Spec.DefinitionRef == name {
 			list = append(list, a)
 		}
 	}

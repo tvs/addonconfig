@@ -32,11 +32,11 @@ type AddonConfigTemplateVariables struct {
 	Default AddonConfigTemplateDefaults `json:"default" protobuf:"bytes,1,opt,name=default"`
 
 	// Dependencies defines the set of resolved dependencies from the
-	// AddonConfigDefinition
+	// AddonConfigDefinition using the dependency's name as a key.
 	Dependencies map[string]interface{} `json:"dependencies" protobuf:"bytes,2,opt,name=dependencies"`
 
 	// Values defines the top-level interface for variables provided by the
-	// spec of the AddonConfig
+	// spec of the AddonConfig.
 	Values map[string]interface{} `json:"values" protobuf:"bytes,3,opt,name=values"`
 }
 
@@ -66,7 +66,7 @@ const (
 // AddonConfigTemplateDefaults are values that will be guaranteed for
 // templating. These variables must be available for dependency resolution.
 type AddonConfigTemplateDefaults struct {
-	// Cluster is CAPI cluster that is targeted during template rendering.
+	// Cluster is a CAPI cluster that is targeted during template rendering.
 	// TODO(tvs): Can we dodge the CAPI import by using unstructured data
 	// instead?
 	Cluster map[string]interface{} `json:"cluster" protobuf:"bytes,1,opt,name=cluster"`

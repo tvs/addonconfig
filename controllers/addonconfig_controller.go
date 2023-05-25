@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -39,6 +40,23 @@ import (
 type AddonConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+}
+
+type addonConfigContext struct {
+	AddonConfig              *addonv1.AddonConfig
+	AddonConfigDefinition    *addonv1.AddonConfigDefinition
+	CustomResourceValidation *apiextensions.CustomResourceValidation
+	TemplateVariables        *templatev1.AddonConfigTemplateVariables
+	RenderedTemplate         string
+}
+
+func newAddonConfigContext(ac *addonv1.AddonConfig) *addonConfigContext {
+	return &addonConfigContext{
+		AddonConfig:              ac,
+		AddonConfigDefinition:    &addonv1.AddonConfigDefinition{},
+		CustomResourceValidation: &apiextensions.CustomResourceValidation{},
+		TemplateVariables:        &templatev1.AddonConfigTemplateVariables{},
+	}
 }
 
 //+kubebuilder:rbac:groups=addon.tvs.io,resources=addonconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -80,15 +98,14 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Starting AddonConfig reconciliation")
 
-	if addonConfig.Spec.Type == "" {
-		log.Info("AddonConfig does not define a type to validate against")
+	// TODO(tvs): This should become a validation on the CRD itself
+	if addonConfig.Spec.DefinitionRef == "" {
+		log.Info("AddonConfig does not define a definitionRef to validate against")
 		return ctrl.Result{}, nil
 	}
 
-	// TODO(tvs): Consider extracting some of this to a typed context
-	addonConfigDefinition := &addonv1.AddonConfigDefinition{}
-	templateVariables := &templatev1.AddonConfigTemplateVariables{}
-	phases := []func(context.Context, *addonv1.AddonConfig, *addonv1.AddonConfigDefinition, *templatev1.AddonConfigTemplateVariables) (ctrl.Result, error){
+	atx := newAddonConfigContext(addonConfig)
+	phases := []func(context.Context, *addonConfigContext) (ctrl.Result, error){
 		r.reconcileValidation,
 		r.reconcileTarget,
 		r.reconcileDependencies,
@@ -99,7 +116,7 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 	res := ctrl.Result{}
 	errs := []error{}
 	for _, phase := range phases {
-		phaseResult, err := phase(ctx, addonConfig, addonConfigDefinition, templateVariables)
+		phaseResult, err := phase(ctx, atx)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -111,6 +128,16 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 		}
 
 		res = util.LowestNonZeroResult(res, phaseResult)
+	}
+
+	// Only want to save the rendered template if nothing has failed
+	if len(errs) == 0 {
+		result, err := r.saveRenderedTemplate(ctx, atx)
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		res = util.LowestNonZeroResult(res, result)
 	}
 
 	return res, kerrors.NewAggregate(errs)

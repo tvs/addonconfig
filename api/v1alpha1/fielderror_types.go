@@ -17,13 +17,15 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 type FieldError struct {
-	Type   field.ErrorType `json:"type" protobuf:"bytes,1,opt,name=type"`
-	Detail string          `json:"detail" protobuf:"bytes,2,opt,name=detail"`
-	//BadValue interface{} `json:"badValue" protobuf:"bytes,3,opt,name=badValue"`
+	Type     field.ErrorType `json:"type" protobuf:"bytes,1,opt,name=type"`
+	Detail   string          `json:"detail" protobuf:"bytes,2,opt,name=detail"`
+	BadValue string          `json:"badValue" protobuf:"bytes,3,opt,name=badValue"`
 }
 
 type FieldErrors map[string]FieldError
@@ -34,7 +36,8 @@ func (f *FieldErrors) SetError(err *field.Error) {
 	}
 
 	(*f)[err.Field] = FieldError{
-		Type:   err.Type,
-		Detail: err.Detail,
+		Type:     err.Type,
+		Detail:   err.Detail,
+		BadValue: fmt.Sprintf("%v", err.BadValue),
 	}
 }

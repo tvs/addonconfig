@@ -37,7 +37,7 @@ func TestAddonConfigReconcilePhases_validation(t *testing.T) {
 			Namespace: "test-namespace",
 		},
 		Spec: addonv1.AddonConfigSpec{
-			Type: "test-addonconfig-definition",
+			DefinitionRef: "test-addonconfig-definition",
 			Values: apiextensionsv1.JSON{
 				Raw: []byte(`{"field": "foo"}`),
 			},
@@ -72,26 +72,31 @@ func TestAddonConfigReconcilePhases_validation(t *testing.T) {
 
 		tests := []struct {
 			name         string
-			ac           *addonv1.AddonConfig
-			acd          *addonv1.AddonConfigDefinition
+			atx          *addonConfigContext
 			expectErr    bool
 			expectResult ctrl.Result
 		}{
 			{
 				name: "returns an error when the AddonConfigDefinition has no schema",
-				// NOTE: we copy these because phase reconciliation often changes conditions
-				ac: ac.DeepCopy(),
-				acd: &addonv1.AddonConfigDefinition{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-addonconfig-definition-empty",
+				atx: &addonConfigContext{
+					// NOTE: we copy these because phase reconciliation often changes conditions
+					AddonConfig: ac.DeepCopy(),
+					AddonConfigDefinition: &addonv1.AddonConfigDefinition{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "test-addonconfig-definition-empty",
+						},
 					},
+					CustomResourceValidation: &apiextensions.CustomResourceValidation{},
 				},
 				expectErr: true,
 			},
 			{
-				name:      "returns no error if the AddonConfigDefinition schema is convertible",
-				ac:        ac.DeepCopy(),
-				acd:       acd,
+				name: "returns no error if the AddonConfigDefinition schema is convertible",
+				atx: &addonConfigContext{
+					AddonConfig:              ac.DeepCopy(),
+					AddonConfigDefinition:    acd,
+					CustomResourceValidation: &apiextensions.CustomResourceValidation{},
+				},
 				expectErr: false,
 			},
 		}
@@ -107,8 +112,7 @@ func TestAddonConfigReconcilePhases_validation(t *testing.T) {
 					Client: c,
 				}
 
-				crv := &apiextensions.CustomResourceValidation{}
-				res, err := r.reconcileSchema(ctx, tt.ac, tt.acd, crv)
+				res, err := r.reconcileSchema(ctx, tt.atx)
 				g.Expect(res).To(Equal(tt.expectResult))
 
 				if tt.expectErr {

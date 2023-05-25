@@ -88,7 +88,7 @@ var _ = Describe("AddonConfig controller", func() {
 				Namespace: AddonConfigNamespace,
 			},
 			Spec: addonv1.AddonConfigSpec{
-				Type: AddonConfigDefinitionName,
+				DefinitionRef: AddonConfigDefinitionName,
 				Values: apiextensionsv1.JSON{
 					Raw: []byte(`{"field": "foo"}`),
 				},
@@ -113,22 +113,6 @@ var _ = Describe("AddonConfig controller", func() {
 		if ac != nil {
 			Expect(k8sClient.Delete(ctx, ac)).Should(Succeed())
 		}
-	})
-
-	Context("When AddonConfig has a non-existent .spec.type", func() {
-		It("Should report an an invalid schema condition", func() {
-			Eventually(getConditionStatus, duration, interval).
-				MustPassRepeatedly(repetitions).
-				WithArguments(addonv1.ValidSchemaCondition).
-				Should(Equal(corev1.ConditionFalse))
-		})
-
-		It("Should report a false ready condition", func() {
-			Eventually(getConditionStatus, duration, interval).
-				MustPassRepeatedly(repetitions).
-				WithArguments(addonv1.ReadyCondition).
-				Should(Equal(corev1.ConditionFalse))
-		})
 	})
 
 	Context("When AddonConfig has an existent .spec.type", func() {

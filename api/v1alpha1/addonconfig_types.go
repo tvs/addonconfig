@@ -19,13 +19,14 @@ package v1alpha1
 import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 )
 
 // AddonConfigSpec defines the desired state of AddonConfig
 type AddonConfigSpec struct {
-	// Type is the name of the AddonConfigDefinition that this AddonConfig is
-	// validated against
-	Type string `json:"type,omitempty" protobuf:"bytes,1,opt,name=type"`
+	// DefinitionRef is the name of the AddonConfigDefinition that this
+	// AddonConfig is validated against
+	DefinitionRef string `json:"type,omitempty" protobuf:"bytes,1,opt,name=definitionRef"`
 
 	// Target defines the CAPI cluster target for this instance of the
 	// AddonConfig.
@@ -50,12 +51,13 @@ type AddonConfigStatus struct {
 
 	// ObservedGeneration is the latest generation observed by the controller.
 	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty" protobuf:"bytes,3,opt,name=observedGeneration"`
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty" protobuf:"bytes,3,opt,name=observedGeneration"`
 
-	// ObservedSchemaGeneration is the latest generation of the schema observed
-	// by the controller
-	// +optional
-	ObservedSchemaGeneration int64 `json:"observedSchemaGeneration,omitempty" protobuf:"bytes,4,opt,name=observedSchemaGeneration"`
+	// ObservedSchemaUID is the latest UID of the schema observed by the
+	// TODO(tvs): Add the UID of the latest resolved AddonConfigDefinition to
+	// ensure we've reconciled the correct AddonConfigDefinition after a recreate
+	// controller +optional
+	ObservedSchemaUID *apitypes.UID `json:"observedSchemaUID,omitempty" protobuf:"bytes,5,opt,name=observedSchemaUID"`
 }
 
 const (
@@ -88,22 +90,21 @@ const (
 
 const (
 	SchemaNotFound                 string = "SchemaNotFound"
-	SchemaNotFoundMessage          string = "Unable to find schema by name %q"
+	SchemaNotFoundMessage          string = "Unable to find AddonConfigDefinition by name %q"
 	InvalidSchema                  string = "InvalidSchema"
 	InvalidSchemaMessage           string = "Schema is invalid"
+	SchemaUndefinedMessage         string = "Schema is undefined"
 	InvalidConfig                  string = "InvalidConfiguration"
 	InvalidConfigMessage           string = "Invalid configuration; see .status.fieldErrors for more information"
 	DefaultingInternalError        string = "DefaultingInternalError"
 	DefaultingInternalErrorMessage string = "Unable to render defaults due to an internal error"
+	TargetUndefined                string = "TargetUndefined"
+	TargetUndefinedMessage         string = "Target is undefined"
 	TargetNotFound                 string = "TargetNotFound"
 	TargetNotFoundMessage          string = "No target has been found"
 	TargetNotDefinedMessage        string = "No target has been defined"
-	TargetCoDefined                string = "TargetCoDefined"
-	TargetCoDefinedMessage         string = "Target has been defined with both a name and selector"
 	TargetNotUnique                string = "TargetNotUnique"
-	TargetNotUniqueMessage         string = "Selector identified more than one cluster"
-	TargetUnsupported              string = "TargetUnsupported"
-	TargetUnsupportedMessage       string = "Target infrastructure type is unsupported"
+	TargetNotUniqueMessage         string = "Selector identified more than one resource"
 	InvalidTemplate                string = "InvalidTemplate"
 	FailedRendering                string = "FailedRendering"
 

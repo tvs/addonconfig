@@ -22,19 +22,12 @@ import (
 
 // ClusterTarget defines a Target with the type explicitly scoped to a
 // Cluster API Cluster resource.
-// TODO(tvs): Is this necessary? Should we dodge it and use unstructured data?
-// How do we handle retrieving the right credentials for a package install?
-// Is that our responsibility?
+// TODO(tvs): How do we handle retrieving the right credentials for a package
+// install?  Is that our responsibility?
 type ClusterTarget struct {
 	// Explicit name of the Cluster that this addon config is targeting.
 	// Mutually exclusive with the selector.
-	// +optional
 	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
-
-	// Label selector to match a Cluster that this addonn config is targeting
-	// Mutually exclusive with the explicit cluster name.
-	// +optional
-	Selector *metav1.LabelSelector `json:"selector" protobuf:"bytes,2,opt,name=selector"`
 }
 
 // Target defines a form of object reference resolved either with explicit
