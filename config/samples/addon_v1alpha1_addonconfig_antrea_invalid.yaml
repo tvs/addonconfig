@@ -5,7 +5,7 @@ metadata:
 spec:
   type: antrea-changed
   target:
-    name: my-cluster
+    name: wl-antrea
   values:
     trafficEncapMode: encap
     noSNAT: false
