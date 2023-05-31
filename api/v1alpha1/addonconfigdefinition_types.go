@@ -39,10 +39,10 @@ type AddonConfigDefinitionSpec struct {
 	// add-on usable format
 	Template string `json:"template" protobuf:"bytes,3,opt,name=template"`
 
-	// TemplateTarget describes where and how to save the rendered template.
+	// OutputResource describes where and how to save the rendered template.
 	// Only supports `Secret` and `ConfigMap`
 	// TODO(tvs): Figure out how to include metadata on the resource
-	TemplateTarget OutputTarget `json:"templateTarget" protobuf:"bytes,4,opt,name=templateTarget"`
+	OutputResource OutputResource `json:"outputResource" protobuf:"bytes,4,opt,name=outputResource"`
 }
 
 // AddonConfigDefinitionDependencies defines a named dependency for use during

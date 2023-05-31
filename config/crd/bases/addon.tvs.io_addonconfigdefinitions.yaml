@@ -56,6 +56,19 @@ spec:
                         apiVersion:
                           description: API version of the target referent.
                           type: string
+                        constraints:
+                          description: Constraints used to identify the constraints
+                            for the target.
+                          items:
+                            description: DependencyConstraint defines type for the
+                              dependency constraint object
+                            properties:
+                              operator:
+                                type: string
+                            required:
+                            - operator
+                            type: object
+                          type: array
                         kind:
                           description: Kind of the target referent.
                           type: string
@@ -120,6 +133,24 @@ spec:
                   - target
                   type: object
                 type: array
+              outputResource:
+                description: 'OutputResource describes where and how to save the rendered
+                  template. Only supports `Secret` and `ConfigMap` TODO(tvs): Figure
+                  out how to include metadata on the resource'
+                properties:
+                  apiVersion:
+                    description: API version of the output resource referent.
+                    type: string
+                  kind:
+                    description: Kind of the output resource referent.
+                    type: string
+                  name:
+                    description: Name of the output resource referent.
+                    type: string
+                required:
+                - apiVersion
+                - kind
+                type: object
               schema:
                 description: Schema describes the schema used for validation, pruning,
                   and defaulting of this version of the custom resource.
@@ -129,28 +160,9 @@ spec:
                 description: Template describes the template used when marshalling
                   the schema into an add-on usable format
                 type: string
-              templateTarget:
-                description: 'TemplateTarget describes where and how to save the rendered
-                  template. Only supports `Secret` and `ConfigMap` TODO(tvs): Figure
-                  out how to include metadata on the resource'
-                properties:
-                  apiVersion:
-                    description: API version of the target referent.
-                    type: string
-                  kind:
-                    description: Kind of the target referent.
-                    type: string
-                  name:
-                    description: Name of the target referent. Mutually exclusive with
-                      the selector.
-                    type: string
-                required:
-                - apiVersion
-                - kind
-                type: object
             required:
+            - outputResource
             - template
-            - templateTarget
             type: object
           status:
             description: AddonConfigDefinitionStatus defines the observed state of

@@ -50,10 +50,10 @@ spec:
               default: false
       required:
       - foo
-  templateTarget:
+  outputResource:
     apiVersion: v1
     kind: Secret
-    name: "{{.Default.Cluster.Metadata.Name}}-antrea-values"
+    name: "{{.Default.Cluster.metadata.name}}-antrea-values"
   template: |
     infraProvider: {{.Default.Infrastructure}}
     antrea:

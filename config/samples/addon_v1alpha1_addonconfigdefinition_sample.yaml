@@ -18,6 +18,8 @@ spec:
             cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
           matchExpressions:
             - { key: foo, operator: In, values: ["{{.Default.Infrastructure}}"] }
+        constraints:
+          - { operator: unique }
     - name: myChainDependency
       target:
         apiVersion: v1
@@ -42,10 +44,10 @@ spec:
               default: true
       required:
         - foo
-  templateTarget:
+  outputResource:
     apiVersion: v1
-    kind: Secret
-    name: "{{.Default.Cluster.Metadata.Name}}-antrea-values"
+    kind: ConfigMap
+    name: "{{.Default.Cluster.metadata.name}}-antrea-values"
   template: |
     config.yml: | 
       infraProvider: {{.Default.Infrastructure}}

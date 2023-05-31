@@ -35,6 +35,10 @@ spec:
           spec:
             description: AddonConfigSpec defines the desired state of AddonConfig
             properties:
+              definitionRef:
+                description: DefinitionRef is the name of the AddonConfigDefinition
+                  that this AddonConfig is validated against
+                type: string
               target:
                 description: Target defines the CAPI cluster target for this instance
                   of the AddonConfig.
@@ -46,10 +50,6 @@ spec:
                 required:
                 - name
                 type: object
-              type:
-                description: DefinitionRef is the name of the AddonConfigDefinition
-                  that this AddonConfig is validated against
-                type: string
               values:
                 description: Values describes the fields to be validated and marshalled
                   with the AddonConfigDefinition defined in type

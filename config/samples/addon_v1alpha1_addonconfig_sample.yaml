@@ -3,9 +3,9 @@ kind: AddonConfig
 metadata:
   name: sample-config
 spec:
-  type: sample
+  definitionRef: sample
   target:
-    name: my-cluster
+    name: wl-antrea
   values:
     foo: def-456
     bar:

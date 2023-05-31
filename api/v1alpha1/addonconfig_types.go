@@ -26,7 +26,7 @@ import (
 type AddonConfigSpec struct {
 	// DefinitionRef is the name of the AddonConfigDefinition that this
 	// AddonConfig is validated against
-	DefinitionRef string `json:"type,omitempty" protobuf:"bytes,1,opt,name=definitionRef"`
+	DefinitionRef string `json:"definitionRef,omitempty" protobuf:"bytes,1,opt,name=definitionRef"`
 
 	// Target defines the CAPI cluster target for this instance of the
 	// AddonConfig.
@@ -86,32 +86,51 @@ const (
 	// valid template for go templating.
 	// TODO(tvs): Move this validation in to an ACD controller
 	ValidTemplateCondition ConditionType = "ValidTemplate"
+
+	// ValidDependencyCondition documents whether the AddonConfigDefinition has a valid dependency
+	ValidDependencyCondition ConditionType = "ValidDependency"
+
+	// OutputResourceUpdatedCondition documents whether the rendered tempalte has been persisted into the output resource
+	OutputResourceUpdatedCondition ConditionType = "OutputResourceUpdated"
 )
 
 const (
-	SchemaNotFound                 string = "SchemaNotFound"
-	SchemaNotFoundMessage          string = "Unable to find AddonConfigDefinition by name %q"
-	InvalidSchema                  string = "InvalidSchema"
-	InvalidSchemaMessage           string = "Schema is invalid"
-	SchemaUndefinedMessage         string = "Schema is undefined"
-	InvalidConfig                  string = "InvalidConfiguration"
-	InvalidConfigMessage           string = "Invalid configuration; see .status.fieldErrors for more information"
-	DefaultingInternalError        string = "DefaultingInternalError"
-	DefaultingInternalErrorMessage string = "Unable to render defaults due to an internal error"
-	TargetUndefined                string = "TargetUndefined"
-	TargetUndefinedMessage         string = "Target is undefined"
-	TargetNotFound                 string = "TargetNotFound"
-	TargetNotFoundMessage          string = "No target has been found"
-	TargetNotDefinedMessage        string = "No target has been defined"
-	TargetNotUnique                string = "TargetNotUnique"
-	TargetNotUniqueMessage         string = "Selector identified more than one resource"
-	InvalidTemplate                string = "InvalidTemplate"
-	FailedRendering                string = "FailedRendering"
+	SchemaNotFound                               string = "SchemaNotFound"
+	SchemaNotFoundMessage                        string = "Unable to find AddonConfigDefinition by name %q"
+	InvalidSchema                                string = "InvalidSchema"
+	InvalidSchemaMessage                         string = "Schema is invalid"
+	SchemaUndefinedMessage                       string = "Schema is undefined"
+	InvalidConfig                                string = "InvalidConfiguration"
+	InvalidConfigMessage                         string = "Invalid configuration; see .status.fieldErrors for more information"
+	DefaultingInternalError                      string = "DefaultingInternalError"
+	DefaultingInternalErrorMessage               string = "Unable to render defaults due to an internal error"
+	TargetUndefined                              string = "TargetUndefined"
+	TargetUndefinedMessage                       string = "No target name has been defined"
+	TargetNotFound                               string = "TargetNotFound"
+	TargetNotFoundMessage                        string = "No target has been found"
+	InvalidTemplate                              string = "InvalidTemplate"
+	FailedRendering                              string = "FailedRendering"
+	FailedWritingRenderedTemplate                string = "FailedWritingRenderedTemplate"
+	DependencyNotFound                           string = "DependencyNotFound"
+	DependencyNotFoundByNameMessage              string = "Unable to find dependency by name %q"
+	DependencyNotFoundBySelectorMessage          string = "Unable to find dependency by using label selectors"
+	DependencyUniquenessNotSatisfied             string = "DependencyUniquenessNotSatisfied"
+	DependencyUniquenessNotSatisfiedMessage      string = "Multiple dependencies found while expecting a single one"
+	DependencyTemplatingFailed                   string = "DependencyTemplatingFailed"
+	DependencyNameTemplatingFailedMessage        string = "Failed to template dependency name: %q"
+	DependencySelectorTemplatingFailedMessage    string = "Failed to template dependency label selector"
+	DependencyConstraintFailed                   string = "DependencyConstraintFailed"
+	DependencyInvalidNumberOfDependenciesMessage string = "invalid number of dependency constraints"
+	OutputResourceUndefined                      string = "OutputResourceUndefined"
+	OutputResourceUndefinedMessage               string = "No output resource has been defined"
+	NameTemplatingFailed                         string = "NameTemplatingFailed"
+	UpdateFailed                                 string = "UpdateFailed"
+	UnableToPersistRenderedTemplateMessage       string = "Unable to persist the rendered template into resource %q"
 
 	// TODO(tvs): More detailed error messages for why they're invalid
-	TemplateParseErrorMessage               string = "Template is unable to be parsed"
-	TemplateDefinesSubTemplatesErrorMessage string = "Template is unable to define sub-templates"
-	TemplateRenderErrorMessage              string = "Template is unable to be rendered"
+	TemplateParseErrorMessage                  string = "Unable to parse the template"
+	TemplateDefinesNestedTemplatesErrorMessage string = "Unable to define nested templates in the template"
+	TemplateWriteErrorMessage                  string = "Unable to write the rendered template into bytes"
 )
 
 //+kubebuilder:object:root=true
