@@ -58,6 +58,9 @@ type AddonConfigStatus struct {
 	// ensure we've reconciled the correct AddonConfigDefinition after a recreate
 	// controller +optional
 	ObservedSchemaUID *apitypes.UID `json:"observedSchemaUID,omitempty" protobuf:"bytes,5,opt,name=observedSchemaUID"`
+
+	// OutputRef describes where the rendered template is persisted.
+	OutputRef OutputResource `json:"outputRef,omitempty" protobuf:"bytes,6,opt,name=outputRef"`
 }
 
 const (
@@ -143,6 +146,12 @@ type AddonConfig struct {
 
 	Spec   AddonConfigSpec   `json:"spec,omitempty"`
 	Status AddonConfigStatus `json:"status,omitempty"`
+}
+
+func (a *AddonConfig) SetOutputRef(apiVersion, kind, name string) {
+	a.Status.OutputRef.APIVersion = apiVersion
+	a.Status.OutputRef.Kind = kind
+	a.Status.OutputRef.Name = name
 }
 
 func (a *AddonConfig) GetConditions() Conditions {

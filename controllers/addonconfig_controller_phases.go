@@ -24,9 +24,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	addonv1 "github.com/tvs/addonconfig/api/v1alpha1"
-	"github.com/tvs/addonconfig/util"
-	"github.com/tvs/addonconfig/util/conditions"
 	"k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
@@ -40,6 +37,11 @@ import (
 	"sigs.k8s.io/cluster-api/controllers/external"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	addonv1 "github.com/tvs/addonconfig/api/v1alpha1"
+	"github.com/tvs/addonconfig/util"
+	"github.com/tvs/addonconfig/util/conditions"
 )
 
 const (
@@ -550,32 +552,21 @@ func (r *AddonConfigReconciler) saveRenderedTemplate(ctx context.Context, atx *a
 	outputResourceUnstructured.SetName(outputResource.Name)
 	outputResourceUnstructured.SetNamespace(atx.AddonConfig.GetNamespace())
 
-	if outputResource.Kind == OutputResourceSecret {
-		unstructured.SetNestedField(outputResourceUnstructured.Object, data, "stringData")
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, outputResourceUnstructured, func() error {
+		if outputResource.Kind == OutputResourceSecret {
+			unstructured.SetNestedField(outputResourceUnstructured.Object, data, "stringData")
 
-	} else if outputResource.Kind == OutputResourceConfigMap {
-		unstructured.SetNestedField(outputResourceUnstructured.Object, data, "data")
-		//res1, res2, err := unstructured.NestedMap(outputResourceUnstructured.Object, "data")
-	}
-
-	objKey := client.ObjectKey{Name: outputResource.Name, Namespace: atx.AddonConfig.GetNamespace()}
-	if err := r.Client.Get(ctx, objKey, outputResourceUnstructured); err != nil {
-		if apierrors.IsNotFound(err) {
-			if err := r.Client.Create(ctx, outputResourceUnstructured); err != nil {
-				return ctrl.Result{}, err
-			}
-		} else {
-			return ctrl.Result{}, err
+		} else if outputResource.Kind == OutputResourceConfigMap {
+			unstructured.SetNestedField(outputResourceUnstructured.Object, data, "data")
 		}
-	} else {
-		if err := r.Client.Update(ctx, outputResourceUnstructured); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+		return nil
+	})
 
 	log.Info("Successfully persisted the rendered template into output resource:", "name", outputResource.Name)
 
 	conditions.MarkTrue(atx.AddonConfig, addonv1.OutputResourceUpdatedCondition)
+
+	atx.AddonConfig.SetOutputRef(outputResource.APIVersion, outputResource.Kind, outputResource.Name)
 
 	return ctrl.Result{}, nil
 }

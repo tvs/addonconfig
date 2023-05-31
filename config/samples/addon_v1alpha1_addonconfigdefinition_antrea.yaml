@@ -67,6 +67,7 @@ spec:
     infraProvider: {{.Default.Infrastructure}}
     antrea:
       config:
+        serviceCIDR: {{ "" }}
         trafficEncapMode: {{.Values.trafficEncapMode}}
         noSNAT: {{.Values.noSNAT}}
         disableUdpTunnelOffload: {{.Values.disableUdpTunnelOffload}}
@@ -81,3 +82,9 @@ spec:
           NodePortLocal: {{.Values.featureGates.NodePortLocal}}
           AntreaTraceflow: {{.Values.featureGates.AntreaTraceflow}}
           NetworkPolicyStats: {{.Values.featureGates.NetworkPolicyStats}}
+          Multicluster: {{.Values.featureGates.Multicluster}}
+          SecondaryNetwork: {{.Values.featureGates.SecondaryNetwork}}
+          TrafficControl: {{.Values.featureGates.TrafficControl}}
+          AntreaIPAM: {{.Values.featureGates.AntreaIPAM}}
+          ServiceExternalIP: {{.Values.featureGates.ServiceExternalIP}}
+          Multicast: {{.Values.featureGates.Multicast}}

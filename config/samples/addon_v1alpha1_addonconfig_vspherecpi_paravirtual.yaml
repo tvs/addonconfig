@@ -1,0 +1,14 @@
+apiVersion: addon.tvs.io/v1alpha1
+kind: AddonConfig
+metadata:
+  name: vspherecpi-config-paravirtual
+spec:
+  definitionRef: vspherecpi
+  target:
+    name: wl-antrea
+  values:
+    vsphereCPI:
+      antreaNSXPodRoutingEnabled: false
+      insecure: false
+      mode: vsphereParavirtualCPI
+      tlsCipherSuites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
