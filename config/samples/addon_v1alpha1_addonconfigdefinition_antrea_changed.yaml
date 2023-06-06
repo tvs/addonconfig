@@ -53,7 +53,7 @@ spec:
   outputResource:
     apiVersion: v1
     kind: Secret
-    name: "{{.Default.Cluster.metadata.name}}-antrea-values"
+    name: "{{.Default.Cluster.metadata.name}}-antrea-changed-values"
   template: |
     infraProvider: {{.Default.Infrastructure}}
     antrea:

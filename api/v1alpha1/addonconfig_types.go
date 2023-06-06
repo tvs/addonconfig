@@ -60,7 +60,7 @@ type AddonConfigStatus struct {
 	ObservedSchemaUID *apitypes.UID `json:"observedSchemaUID,omitempty" protobuf:"bytes,5,opt,name=observedSchemaUID"`
 
 	// OutputRef describes where the rendered template is persisted.
-	OutputRef OutputResource `json:"outputRef,omitempty" protobuf:"bytes,6,opt,name=outputRef"`
+	OutputRef *OutputResource `json:"outputRef,omitempty" protobuf:"bytes,6,opt,name=outputRef"`
 }
 
 const (
@@ -149,9 +149,11 @@ type AddonConfig struct {
 }
 
 func (a *AddonConfig) SetOutputRef(apiVersion, kind, name string) {
-	a.Status.OutputRef.APIVersion = apiVersion
-	a.Status.OutputRef.Kind = kind
-	a.Status.OutputRef.Name = name
+	a.Status.OutputRef = &OutputResource{
+		APIVersion: apiVersion,
+		Kind:       kind,
+		Name:       name,
+	}
 }
 
 func (a *AddonConfig) GetConditions() Conditions {

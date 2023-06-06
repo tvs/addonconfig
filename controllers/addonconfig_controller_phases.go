@@ -450,8 +450,12 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addonConfigContext) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	funcMap := template.FuncMap{
+		"base64decode": util.Base64Decode,
+	}
+
 	if atx.AddonConfigDefinition.Spec.Template != "" {
-		t, err := template.New("").Option("missingkey=error").Parse(atx.AddonConfigDefinition.Spec.Template)
+		t, err := template.New("").Funcs(funcMap).Option("missingkey=error").Parse(atx.AddonConfigDefinition.Spec.Template)
 		if err != nil {
 			conditions.MarkFalse(atx.AddonConfig,
 				addonv1.ValidTemplateCondition,

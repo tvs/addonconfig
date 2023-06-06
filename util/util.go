@@ -22,6 +22,7 @@ package util
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -370,4 +371,13 @@ func GetInfrastructureProvider(apiVersion, kind string) templatev1.Infrastructur
 	}
 
 	return templatev1.InfrastructureProviderUnknown
+}
+
+func Base64Decode(str string) (string, error) {
+	decoded, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return "", err
+	}
+
+	return string(decoded), nil
 }

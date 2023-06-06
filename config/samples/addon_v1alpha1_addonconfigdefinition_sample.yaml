@@ -47,7 +47,7 @@ spec:
   outputResource:
     apiVersion: v1
     kind: ConfigMap
-    name: "{{.Default.Cluster.metadata.name}}-antrea-values"
+    name: "{{.Default.Cluster.metadata.name}}-sample-values"
   template: |
     config.yml: | 
       infraProvider: {{.Default.Infrastructure}}
