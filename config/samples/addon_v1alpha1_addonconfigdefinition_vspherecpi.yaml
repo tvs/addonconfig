@@ -46,6 +46,8 @@ spec:
         apiVersion: v1
         kind: ConfigMap
         name: cluster-info
+        constraints:
+          - { operator: optional }
   schema:
     openAPIV3Schema:
       type: object
@@ -300,15 +302,15 @@ spec:
     vsphereCPI:
       {{- if eq .Values.vsphereCPI.mode "vsphereCPI"}}
         mode: {{.Values.vsphereCPI.mode}}
-        {{ if not (eq .Dependencies.infrastructureCluster.spec.thumbprint "") }}tlsThumbprint:{{ .Dependencies.infrastructureCluster.spec.thumbprint }}{{- else }}tlsThumbprint: ""{{- end }}
+        {{ if not (eq .Dependencies.infrastructureCluster.spec.thumbprint "") }}tlsThumbprint:{{ .Dependencies.infrastructureCluster.spec.thumbprint }}{{- end }}
         server: {{.Dependencies.infrastructureCluster.spec.server}}
         datacenter: {{.Dependencies.infrastructureTemplate.spec.template.spec.datacenter}}
-        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}username:{{ .Dependencies.identityRefSecret.data.username | base64decode }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}username: ""{{ end }}
+        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}username:{{ .Dependencies.identityRefSecret.data.username | base64decode }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}username:""{{ end }}
         {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}password:{{ .Dependencies.identityRefSecret.data.password | base64decode }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}password:""{{ end }}
         {{- if not (eq (index .Values.vsphereCPI "region") nil) }}region:{{ .Values.vsphereCPI.region }}{{- end }}
         {{- if not (eq (index .Values.vsphereCPI "zone") nil) }}zone:{{ .Values.vsphereCPI.zone }}{{- end }}
-        {{ if not (eq (index .Dependencies.infrastructureCluster.spec "insecure") nil) }}insecureFlag:{{ .Dependencies.infrastructureCluster.spec.insecure }}{{- else }}insecureFlag: {{ eq .Dependencies.infrastructureCluster.spec.thumbprint "" }}{{ end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-ip-family") "") }}ipFamily:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-ip-family" }}{{- else }}ipFamily: ""{{- end }}
+        {{ if not (eq (index .Dependencies.infrastructureCluster.spec "insecure") nil) }}insecureFlag:{{ .Dependencies.infrastructureCluster.spec.insecure }}{{- else }}insecureFlag:{{ eq .Dependencies.infrastructureCluster.spec.thumbprint "" }}{{ end }}
+        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-ip-family") "") }}ipFamily:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-ip-family" }}{{- else }}ipFamily:""{{- end }}
         {{- if not (eq (index .Values.vsphereCPI.vmNetwork "vmInternalNetwork") nil) }}vmInternalNetwork:{{  .Values.vsphereCPI.vmNetwork.vmInternalNetwork }}{{- end }}
         {{- if not (eq (index .Values.vsphereCPI.vmNetwork "vmExternalNetwork") nil) }}vmExternalNetwork:{{  .Values.vsphereCPI.vmNetwork.vmExternalNetwork }}{{- end }}
         vmExcludeInternalNetworkSubnetCidr: {{.Values.vsphereCPI.vmNetwork.excludeInternalSubnetCidr}}
@@ -334,9 +336,9 @@ spec:
           {{- if not (eq (index .Values.vsphereCPI.nsxt "secretName") nil) }}secretName:{{ .Values.vsphereCPI.nsxt.secretName }}{{- end }}
           {{- if not (eq (index .Values.vsphereCPI.nsxt "secretNamespace") nil) }}secretNamespace:{{ .Values.vsphereCPI.nsxt.secretNamespace }}{{- end }}
           {{- end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-http-proxy") "") }}http_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-http-proxy" }}{{- else }}http_proxy: ""{{- end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-https-proxy") "") }}https_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-https-proxy" }}{{- else }}https_proxy: ""{{- end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-no-proxy") "") }}no_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-no-proxy" }}{{- else }}no_proxy: ""{{- end }}
+        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-http-proxy") "") }}http_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-http-proxy" }}{{- else }}http_proxy:""{{- end }}
+        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-https-proxy") "") }}https_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-https-proxy" }}{{- else }}https_proxy:""{{- end }}
+        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-no-proxy") "") }}no_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-no-proxy" }}{{- else }}no_proxy:""{{- end }}
       {{- else if eq .Values.vsphereCPI.mode "vsphereParavirtualCPI"}}
         mode: {{.Values.vsphereCPI.mode}}
         clusterAPIVersion: {{.Default.Cluster.apiVersion}}

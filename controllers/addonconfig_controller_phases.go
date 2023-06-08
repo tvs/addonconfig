@@ -49,6 +49,7 @@ const (
 	ClusterAPIVersion               = "cluster.x-k8s.io/v1beta1"
 	DependencyConstraintUnique      = "unique"
 	DependencyConstraintSelectFirst = "selectFirst"
+	DependencyConstraintOptional    = "optional"
 	OutputResourceSecret            = "Secret"
 	OutputResourceConfigMap         = "ConfigMap"
 )
@@ -340,6 +341,27 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 			return ctrl.Result{}, errors.New("Dependency target has both name and a label selector")
 		}
 
+		var (
+			uniqueDependencyConstraintSet      bool
+			selectFirstDependencyConstraintSet bool
+			optionalDependencyConstraintSet    bool
+		)
+
+		if len(target.Constraints) >= 1 {
+			for _, constraint := range target.Constraints {
+				switch constraint.Operator {
+				case DependencyConstraintUnique:
+					uniqueDependencyConstraintSet = true
+				case DependencyConstraintSelectFirst:
+					selectFirstDependencyConstraintSet = true
+				case DependencyConstraintOptional:
+					optionalDependencyConstraintSet = true
+				default:
+					return ctrl.Result{}, errors.New("invalid dependency constraint operator used. Only 'unique' and 'selectFirst' allowed")
+				}
+			}
+		}
+
 		if target.Selector != nil {
 			// Render our label selector and expressions
 			ls, err := renderSelector(target.Selector, atx)
@@ -356,56 +378,48 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 			objectList.SetAPIVersion(target.APIVersion)
 			objectList.SetKind(target.Kind)
 
-			if err := r.Client.List(
+			err = r.Client.List(
 				ctx,
 				&objectList,
 				client.MatchingLabelsSelector{Selector: selector},
 				client.InNamespace(atx.AddonConfig.GetNamespace()),
-			); err != nil {
-				conditions.MarkFalse(atx.AddonConfig,
-					addonv1.ValidDependencyCondition,
-					addonv1.DependencyNotFound,
-					addonv1.ConditionSeverityError,
-					addonv1.DependencyNotFoundBySelectorMessage)
-				return ctrl.Result{}, errors.Wrap(err, "failed to list dependencies matching the specified selector")
+			)
+			if err != nil || len(objectList.Items) == 0 {
+				if optionalDependencyConstraintSet {
+					log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
+					return ctrl.Result{}, nil
+				} else {
+					conditions.MarkFalse(atx.AddonConfig,
+						addonv1.ValidDependencyCondition,
+						addonv1.DependencyNotFound,
+						addonv1.ConditionSeverityError,
+						addonv1.DependencyNotFoundBySelectorMessage)
+					return ctrl.Result{}, errors.Wrap(err, "unable to find any dependency matching the specified selector")
+				}
 			}
 
-			if len(objectList.Items) == 0 {
-				conditions.MarkFalse(atx.AddonConfig,
-					addonv1.ValidDependencyCondition,
-					addonv1.DependencyNotFound,
-					addonv1.ConditionSeverityError,
-					addonv1.DependencyNotFoundBySelectorMessage)
-				return ctrl.Result{}, errors.Wrap(err, "unable to find any dependency matching the specified selector")
-			}
-
-			if len(target.Constraints) > 1 {
+			if len(target.Constraints) > 1 && uniqueDependencyConstraintSet && selectFirstDependencyConstraintSet {
 				conditions.MarkFalse(atx.AddonConfig,
 					addonv1.ValidDependencyCondition,
 					addonv1.DependencyConstraintFailed,
 					addonv1.ConditionSeverityError,
-					addonv1.DependencyInvalidNumberOfDependenciesMessage)
-				return ctrl.Result{}, errors.Wrap(err, "invalid number of dependency constraints")
+					addonv1.DependencyIncorrectSetOfDependenciesMessage)
+				return ctrl.Result{}, errors.Wrap(err, "incorrect set of dependency constraints")
 			}
 
-			if len(target.Constraints) == 1 {
-				constraint := target.Constraints[0]
-				switch constraint.Operator {
-				case DependencyConstraintUnique:
-					if len(objectList.Items) > 1 {
-						conditions.MarkFalse(atx.AddonConfig,
-							addonv1.ValidDependencyCondition,
-							addonv1.DependencyUniquenessNotSatisfied,
-							addonv1.ConditionSeverityError,
-							addonv1.DependencyUniquenessNotSatisfiedMessage)
-						return ctrl.Result{}, errors.New("multiple dependency resources matched the label selector")
-					}
-				case DependencyConstraintSelectFirst:
+			if len(objectList.Items) > 1 {
+				if uniqueDependencyConstraintSet {
+					conditions.MarkFalse(atx.AddonConfig,
+						addonv1.ValidDependencyCondition,
+						addonv1.DependencyUniquenessNotSatisfied,
+						addonv1.ConditionSeverityError,
+						addonv1.DependencyUniquenessNotSatisfiedMessage)
+					return ctrl.Result{}, errors.New("multiple dependency resources matched the label selector")
+				} else if selectFirstDependencyConstraintSet {
 					log.Info("multiple dependency resources matched the label selector")
-				default:
-					return ctrl.Result{}, errors.New("invalid dependency constraint operator used. Only 'unique' and 'selectFirst' allowed")
 				}
 			}
+
 			obj = &objectList.Items[0]
 		} else {
 			t, err := template.New("").Parse(target.Name)
@@ -432,12 +446,17 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 			objRef := &v1.ObjectReference{Kind: target.Kind, Namespace: atx.AddonConfig.GetNamespace(), Name: target.Name, APIVersion: target.APIVersion}
 			obj, err = external.Get(ctx, r.Client, objRef, atx.AddonConfig.GetNamespace())
 			if err != nil {
-				conditions.MarkFalse(atx.AddonConfig,
-					addonv1.ValidDependencyCondition,
-					addonv1.DependencyNotFound,
-					addonv1.ConditionSeverityError,
-					fmt.Sprintf(addonv1.DependencyNotFoundByNameMessage, target.Name))
-				return ctrl.Result{}, errors.Wrapf(err, "unable to find object %s/%s", atx.AddonConfig.GetNamespace(), target.Name)
+				if optionalDependencyConstraintSet {
+					log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
+					return ctrl.Result{}, nil
+				} else {
+					conditions.MarkFalse(atx.AddonConfig,
+						addonv1.ValidDependencyCondition,
+						addonv1.DependencyNotFound,
+						addonv1.ConditionSeverityError,
+						fmt.Sprintf(addonv1.DependencyNotFoundByNameMessage, target.Name))
+					return ctrl.Result{}, errors.Wrapf(err, "unable to find object %s/%s", atx.AddonConfig.GetNamespace(), target.Name)
+				}
 			}
 		}
 
