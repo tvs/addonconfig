@@ -108,8 +108,8 @@ func (r *AddonConfigReconciler) reconcile(ctx context.Context, addonConfig *addo
 	phases := []func(context.Context, *addonConfigContext) (ctrl.Result, error){
 		r.reconcileValidation,
 		r.reconcileTarget,
-		r.reconcileDependencies,
 		r.reconcileTemplateValues,
+		r.reconcileDependencies,
 		r.reconcileTemplate,
 	}
 

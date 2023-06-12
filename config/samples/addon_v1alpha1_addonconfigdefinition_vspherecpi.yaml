@@ -40,7 +40,9 @@ spec:
       target:
         apiVersion: v1
         kind: Secret
-        name: wl-antrea
+        name: "{{.Values.vsphereCPI.nsxt.credentialLocalObjRef.name}}"
+        constraints:
+          - { operator: optional }
     - name: clusterInfoConfigMap
       target:
         apiVersion: v1
@@ -153,6 +155,21 @@ spec:
               default: ""
               description: Client certificate key for NSX-T
               type: string
+            credentialLocalObjRef:
+              type: object
+              default: null
+              nullable: true
+              properties:
+                apiGroup:
+                  default: ""
+                  type: string
+                kind:
+                  default: ""
+                  type: string
+                name:
+                  default: ""
+                  description: Client certificate data for NSX-T
+                  type: string
             host:
               default: null
               description: The NSX-T server
@@ -301,8 +318,8 @@ spec:
   template: |
     vsphereCPI:
       {{- if eq .Values.vsphereCPI.mode "vsphereCPI"}}
-        mode: {{.Values.vsphereCPI.mode}}
-        {{ if not (eq .Dependencies.infrastructureCluster.spec.thumbprint "") }}tlsThumbprint:{{ .Dependencies.infrastructureCluster.spec.thumbprint }}{{- end }}
+        mode: {{.Values.vsphereCPI.mode }}
+        {{ if not (eq .Dependencies.infrastructureCluster.spec.thumbprint "") }}tlsThumbprint:{{ .Dependencies.infrastructureCluster.spec.thumbprint }}{{- else }}tlsThumbprint:""{{- end }}
         server: {{.Dependencies.infrastructureCluster.spec.server}}
         datacenter: {{.Dependencies.infrastructureTemplate.spec.template.spec.datacenter}}
         {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}username:{{ .Dependencies.identityRefSecret.data.username | base64decode }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}username:""{{ end }}
@@ -322,9 +339,11 @@ spec:
           routes:
             {{- if and (not (eq (index .Values.vsphereCPI "nsxt") nil)) (not (eq (index .Values.vsphereCPI.nsxt "routes") nil)) (not (eq (index .Values.vsphereCPI.nsxt.routes "routerPath") nil)) }}routerPath:{{ .Values.vsphereCPI.nsxt.routes.routerPath }}{{- end }}
             clusterCidr: {{ index .Default.Cluster "spec" "clusterNetwork" "pods" "cidrBlocks" 0 }}
-          username: {{ "" }}
-          password: {{ "" }}
           {{- if not (eq (index .Values.vsphereCPI "nsxt") nil) }}
+          {{- if not (eq (index .Values.vsphereCPI.NSXT "credentialLocalObjRef") nil) }}
+          username: {{ .Dependencies.nsxtSecret.data.username | base64decode }}
+          password: {{ .Dependencies.nsxtSecret.data.password | base64decode }}
+          {{- end }}
           {{- if not (eq (index .Values.vsphereCPI.nsxt "host") nil) }}host:{{ .Values.vsphereCPI.nsxt.host }}{{- end }}
           {{- if not (eq (index .Values.vsphereCPI.nsxt "insecure") nil) }}insecure:{{ .Values.vsphereCPI.nsxt.insecure }}{{- end }}
           {{- if not (eq (index .Values.vsphereCPI.nsxt "remoteAuthEnabled") nil) }}remoteAuthEnabled:{{ .Values.vsphereCPI.nsxt.remoteAuthEnabled }}{{- end }}
