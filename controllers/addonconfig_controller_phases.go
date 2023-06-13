@@ -54,6 +54,12 @@ const (
 	OutputResourceConfigMap         = "ConfigMap"
 )
 
+type targetConstraints struct {
+	uniqueDependencyConstraint      bool
+	selectFirstDependencyConstraint bool
+	optionalDependencyConstraint    bool
+}
+
 // TODO(tvs): Extract some of this to an AddonConfigDefinition controller
 // and key off of a condition rather than rebuilding the resource every
 // reconciliation
@@ -331,133 +337,44 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 	atx.TemplateVariables.Dependencies = make(map[string]interface{}, len(atx.AddonConfigDefinition.Spec.Dependencies))
 
 	for _, dep := range atx.AddonConfigDefinition.Spec.Dependencies {
-		var obj *unstructured.Unstructured
-
-		target := dep.Target
+		var (
+			obj         *unstructured.Unstructured
+			constraints targetConstraints
+			err         error
+		)
 
 		// TODO(tvs): This should be prevented by a validating webhook
-		if target.Name != "" && target.Selector != nil {
+		if dep.Target.Name != "" && dep.Target.Selector != nil {
 			log.Info("Dependency defines a target with both a name and selector", "dependencyName", dep.Name)
 			return ctrl.Result{}, errors.New("Dependency target has both name and a label selector")
 		}
 
-		var (
-			uniqueDependencyConstraintSet      bool
-			selectFirstDependencyConstraintSet bool
-			optionalDependencyConstraintSet    bool
-		)
-
-		if len(target.Constraints) >= 1 {
-			for _, constraint := range target.Constraints {
+		if len(dep.Target.Constraints) >= 1 {
+			for _, constraint := range dep.Target.Constraints {
 				switch constraint.Operator {
 				case DependencyConstraintUnique:
-					uniqueDependencyConstraintSet = true
+					constraints.uniqueDependencyConstraint = true
 				case DependencyConstraintSelectFirst:
-					selectFirstDependencyConstraintSet = true
+					constraints.selectFirstDependencyConstraint = true
 				case DependencyConstraintOptional:
-					optionalDependencyConstraintSet = true
+					constraints.optionalDependencyConstraint = true
 				default:
 					return ctrl.Result{}, errors.New("invalid dependency constraint operator used. Only 'unique' and 'selectFirst' allowed")
 				}
 			}
 		}
 
-		if target.Selector != nil {
-			// Render our label selector and expressions
-			ls, err := renderSelector(target.Selector, atx)
-			if err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "unable to render target selector")
-			}
-
-			selector, err := metav1.LabelSelectorAsSelector(ls)
-			if err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
-			}
-
-			var objectList unstructured.UnstructuredList
-			objectList.SetAPIVersion(target.APIVersion)
-			objectList.SetKind(target.Kind)
-
-			err = r.Client.List(
-				ctx,
-				&objectList,
-				client.MatchingLabelsSelector{Selector: selector},
-				client.InNamespace(atx.AddonConfig.GetNamespace()),
-			)
-			if err != nil || len(objectList.Items) == 0 {
-				if optionalDependencyConstraintSet {
-					log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
-					return ctrl.Result{}, nil
-				} else {
-					conditions.MarkFalse(atx.AddonConfig,
-						addonv1.ValidDependencyCondition,
-						addonv1.DependencyNotFound,
-						addonv1.ConditionSeverityError,
-						addonv1.DependencyNotFoundBySelectorMessage)
-					return ctrl.Result{}, errors.Wrap(err, "unable to find any dependency matching the specified selector")
-				}
-			}
-
-			if len(target.Constraints) > 1 && uniqueDependencyConstraintSet && selectFirstDependencyConstraintSet {
-				conditions.MarkFalse(atx.AddonConfig,
-					addonv1.ValidDependencyCondition,
-					addonv1.DependencyConstraintFailed,
-					addonv1.ConditionSeverityError,
-					addonv1.DependencyIncorrectSetOfDependenciesMessage)
-				return ctrl.Result{}, errors.Wrap(err, "incorrect set of dependency constraints")
-			}
-
-			if len(objectList.Items) > 1 {
-				if uniqueDependencyConstraintSet {
-					conditions.MarkFalse(atx.AddonConfig,
-						addonv1.ValidDependencyCondition,
-						addonv1.DependencyUniquenessNotSatisfied,
-						addonv1.ConditionSeverityError,
-						addonv1.DependencyUniquenessNotSatisfiedMessage)
-					return ctrl.Result{}, errors.New("multiple dependency resources matched the label selector")
-				} else if selectFirstDependencyConstraintSet {
-					log.Info("multiple dependency resources matched the label selector")
-				}
-			}
-
-			obj = &objectList.Items[0]
+		if dep.Target.Selector != nil {
+			obj, err = r.fetchLabeledDependency(ctx, atx, &dep, &constraints)
 		} else {
-			t, err := template.New("").Parse(target.Name)
-			if err != nil {
-				conditions.MarkFalse(atx.AddonConfig,
-					addonv1.ValidDependencyCondition,
-					addonv1.DependencyTemplatingFailed,
-					addonv1.ConditionSeverityError,
-					fmt.Sprintf(addonv1.DependencyNameTemplatingFailedMessage, target.Name))
-				return ctrl.Result{}, errors.Wrap(err, "Target name could not be parsed")
-			}
-			var out bytes.Buffer
-			err = t.Execute(&out, atx.TemplateVariables)
-			if err != nil {
-				conditions.MarkFalse(atx.AddonConfig,
-					addonv1.ValidDependencyCondition,
-					addonv1.DependencyTemplatingFailed,
-					addonv1.ConditionSeverityError,
-					fmt.Sprintf(addonv1.DependencyNameTemplatingFailedMessage, target.Name))
-				return ctrl.Result{}, errors.Wrap(err, "Rendering template failed")
-			}
-			target.Name = out.String()
+			obj, err = r.fetchNamedDependency(ctx, atx, &dep, &constraints)
+		}
 
-			objRef := &v1.ObjectReference{Kind: target.Kind, Namespace: atx.AddonConfig.GetNamespace(), Name: target.Name, APIVersion: target.APIVersion}
-			obj, err = external.Get(ctx, r.Client, objRef, atx.AddonConfig.GetNamespace())
-			if err != nil {
-				if optionalDependencyConstraintSet {
-					log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
-					return ctrl.Result{}, nil
-				} else {
-					conditions.MarkFalse(atx.AddonConfig,
-						addonv1.ValidDependencyCondition,
-						addonv1.DependencyNotFound,
-						addonv1.ConditionSeverityError,
-						fmt.Sprintf(addonv1.DependencyNotFoundByNameMessage, target.Name))
-					return ctrl.Result{}, errors.Wrapf(err, "unable to find object %s/%s", atx.AddonConfig.GetNamespace(), target.Name)
-				}
-			}
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if obj == nil {
+			continue
 		}
 
 		atx.TemplateVariables.Dependencies[dep.Name] = obj.UnstructuredContent()
@@ -466,11 +383,121 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 	return ctrl.Result{}, nil
 }
 
+func (r *AddonConfigReconciler) fetchLabeledDependency(ctx context.Context, atx *addonConfigContext, dep *addonv1.AddonConfigDefinitionDependencies, constraints *targetConstraints) (*unstructured.Unstructured, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Render our label selector and expressions
+	ls, err := renderSelector(dep.Target.Selector, atx)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to render target selector")
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(ls)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
+	}
+
+	var objectList unstructured.UnstructuredList
+	objectList.SetAPIVersion(dep.Target.APIVersion)
+	objectList.SetKind(dep.Target.Kind)
+
+	err = r.Client.List(
+		ctx,
+		&objectList,
+		client.MatchingLabelsSelector{Selector: selector},
+		client.InNamespace(atx.AddonConfig.GetNamespace()),
+	)
+	if err != nil || len(objectList.Items) == 0 {
+		if constraints.optionalDependencyConstraint {
+			log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
+			return nil, nil
+		} else {
+			conditions.MarkFalse(atx.AddonConfig,
+				addonv1.ValidDependencyCondition,
+				addonv1.DependencyNotFound,
+				addonv1.ConditionSeverityError,
+				addonv1.DependencyNotFoundBySelectorMessage)
+			return nil, errors.Wrap(err, "unable to find any dependency matching the specified selector")
+		}
+	}
+
+	if len(dep.Target.Constraints) > 1 && constraints.uniqueDependencyConstraint && constraints.selectFirstDependencyConstraint {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.ValidDependencyCondition,
+			addonv1.DependencyConstraintFailed,
+			addonv1.ConditionSeverityError,
+			addonv1.DependencyIncorrectSetOfDependenciesMessage)
+		return nil, errors.Wrap(err, "incorrect set of dependency constraints")
+	}
+
+	if len(objectList.Items) > 1 {
+		if constraints.uniqueDependencyConstraint {
+			conditions.MarkFalse(atx.AddonConfig,
+				addonv1.ValidDependencyCondition,
+				addonv1.DependencyUniquenessNotSatisfied,
+				addonv1.ConditionSeverityError,
+				addonv1.DependencyUniquenessNotSatisfiedMessage)
+			return nil, errors.New("multiple dependency resources matched the label selector")
+		} else if constraints.selectFirstDependencyConstraint {
+			log.Info("multiple dependency resources matched the label selector")
+		}
+	}
+
+	return &objectList.Items[0], nil
+}
+
+func (r *AddonConfigReconciler) fetchNamedDependency(ctx context.Context, atx *addonConfigContext, dep *addonv1.AddonConfigDefinitionDependencies, constraints *targetConstraints) (*unstructured.Unstructured, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	t, err := template.New("").Parse(dep.Target.Name)
+	if err != nil {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.ValidDependencyCondition,
+			addonv1.DependencyTemplatingFailed,
+			addonv1.ConditionSeverityError,
+			fmt.Sprintf(addonv1.DependencyNameTemplatingFailedMessage, dep.Target.Name))
+		return nil, errors.Wrap(err, "Target name could not be parsed")
+	}
+	var out bytes.Buffer
+	if err = t.Execute(&out, atx.TemplateVariables); err != nil {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.ValidDependencyCondition,
+			addonv1.DependencyTemplatingFailed,
+			addonv1.ConditionSeverityError,
+			fmt.Sprintf(addonv1.DependencyNameTemplatingFailedMessage, dep.Target.Name))
+		return nil, errors.Wrap(err, "Rendering template failed")
+	}
+	dep.Target.Name = out.String()
+
+	objRef := &v1.ObjectReference{Kind: dep.Target.Kind, Namespace: atx.AddonConfig.GetNamespace(), Name: dep.Target.Name, APIVersion: dep.Target.APIVersion}
+	obj, err := external.Get(ctx, r.Client, objRef, atx.AddonConfig.GetNamespace())
+	if err != nil {
+		if constraints.optionalDependencyConstraint {
+			log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
+			return nil, nil
+		} else {
+			conditions.MarkFalse(atx.AddonConfig,
+				addonv1.ValidDependencyCondition,
+				addonv1.DependencyNotFound,
+				addonv1.ConditionSeverityError,
+				fmt.Sprintf(addonv1.DependencyNotFoundByNameMessage, dep.Target.Name))
+			return nil, errors.Wrapf(err, "unable to find object %s/%s", atx.AddonConfig.GetNamespace(), dep.Target.Name)
+		}
+	}
+
+	return obj, nil
+}
+
 func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addonConfigContext) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	funcMap := template.FuncMap{
-		"base64decode": util.Base64Decode,
+		"decodebase64":        util.Base64Decode,
+		"encodebase64":        util.Base64Encode,
+		"parseClusterInfo":    util.ParseClusterInfo,
+		"getClusterServer":    util.GetClusterServer,
+		"parseAddressFromURL": util.ParseAddressFromURL,
+		"parsePortFromURL":    util.ParsePortFromURL,
 	}
 
 	if atx.AddonConfigDefinition.Spec.Template != "" {

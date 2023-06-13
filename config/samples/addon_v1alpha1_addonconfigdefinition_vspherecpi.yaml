@@ -40,7 +40,12 @@ spec:
       target:
         apiVersion: v1
         kind: Secret
-        name: "{{.Values.vsphereCPI.nsxt.credentialLocalObjRef.name}}"
+        name: |
+          {{- if not (eq (index .Values.vsphereCPI "nsxt") nil) -}}
+              {{- if not (eq (index .Values.vsphereCPI.nsxt "credentialLocalObjRef") nil) }}
+                {{- .Values.vsphereCPI.nsxt.routes.routerPath -}}
+              {{- end -}}
+          {{- end -}}
         constraints:
           - { operator: optional }
     - name: clusterInfoConfigMap
@@ -168,7 +173,6 @@ spec:
                   type: string
                 name:
                   default: ""
-                  description: Client certificate data for NSX-T
                   type: string
             host:
               default: null
@@ -322,8 +326,8 @@ spec:
         {{ if not (eq .Dependencies.infrastructureCluster.spec.thumbprint "") }}tlsThumbprint:{{ .Dependencies.infrastructureCluster.spec.thumbprint }}{{- else }}tlsThumbprint:""{{- end }}
         server: {{.Dependencies.infrastructureCluster.spec.server}}
         datacenter: {{.Dependencies.infrastructureTemplate.spec.template.spec.datacenter}}
-        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}username:{{ .Dependencies.identityRefSecret.data.username | base64decode }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}username:""{{ end }}
-        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}password:{{ .Dependencies.identityRefSecret.data.password | base64decode }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}password:""{{ end }}
+        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}username:{{ .Dependencies.identityRefSecret.data.username | decodebase64 }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}username:""{{ end }}
+        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}password:{{ .Dependencies.identityRefSecret.data.password | decodebase64 }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}password:""{{ end }}
         {{- if not (eq (index .Values.vsphereCPI "region") nil) }}region:{{ .Values.vsphereCPI.region }}{{- end }}
         {{- if not (eq (index .Values.vsphereCPI "zone") nil) }}zone:{{ .Values.vsphereCPI.zone }}{{- end }}
         {{ if not (eq (index .Dependencies.infrastructureCluster.spec "insecure") nil) }}insecureFlag:{{ .Dependencies.infrastructureCluster.spec.insecure }}{{- else }}insecureFlag:{{ eq .Dependencies.infrastructureCluster.spec.thumbprint "" }}{{ end }}
@@ -341,8 +345,8 @@ spec:
             clusterCidr: {{ index .Default.Cluster "spec" "clusterNetwork" "pods" "cidrBlocks" 0 }}
           {{- if not (eq (index .Values.vsphereCPI "nsxt") nil) }}
           {{- if not (eq (index .Values.vsphereCPI.NSXT "credentialLocalObjRef") nil) }}
-          username: {{ .Dependencies.nsxtSecret.data.username | base64decode }}
-          password: {{ .Dependencies.nsxtSecret.data.password | base64decode }}
+          username: {{ .Dependencies.nsxtSecret.data.username | decodebase64 }}
+          password: {{ .Dependencies.nsxtSecret.data.password | decodebase64 }}
           {{- end }}
           {{- if not (eq (index .Values.vsphereCPI.nsxt "host") nil) }}host:{{ .Values.vsphereCPI.nsxt.host }}{{- end }}
           {{- if not (eq (index .Values.vsphereCPI.nsxt "insecure") nil) }}insecure:{{ .Values.vsphereCPI.nsxt.insecure }}{{- end }}
@@ -364,8 +368,7 @@ spec:
         clusterKind: {{.Default.Cluster.kind}}
         clusterName: {{.Default.Cluster.metadata.name}}
         clusterUID: {{.Default.Cluster.metadata.uid}}
-        supervisorMasterEndpointIP: {{ "" }}
-        supervisorMasterPort: {{ "" }}
-        {{/*supervisorMasterEndpointIP: {{ .Dependencies.clusterInfoConfigMap.data.kubeconfig.cluster }}*/}}
+        supervisorMasterEndpointIP: {{ .Dependencies.clusterInfoConfigMap.data.kubeconfig | parseClusterInfo | getClusterServer | parseAddressFromURL }}
+        supervisorMasterPort: {{ .Dependencies.clusterInfoConfigMap.data.kubeconfig | parseClusterInfo | getClusterServer | parsePortFromURL }}
         antreaNSXPodRoutingEnabled: {{.Values.vsphereCPI.antreaNSXPodRoutingEnabled}}
       {{- end}}
