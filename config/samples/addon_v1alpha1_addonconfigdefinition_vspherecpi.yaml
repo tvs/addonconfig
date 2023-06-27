@@ -4,19 +4,15 @@ metadata:
   name: vspherecpi
 spec:
   dependencies:
-    - name: machineDeployment
+    - name: cluster
       target:
         apiVersion: cluster.x-k8s.io/v1beta1
-        kind: MachineDeployment
-        selector:
-          matchLabels:
-            cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
-        constraints:
-          - { operator: selectFirst }
-    - name: infrastructureCluster
+        kind: Cluster
+        name: "{{.Default.Cluster.metadata.name}}"
+    - name: kubeadmControlPlane
       target:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-        kind: VSphereCluster
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlane
         selector:
           matchLabels:
             cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
@@ -26,11 +22,16 @@ spec:
       target:
         apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
         kind: VSphereMachineTemplate
+        name: "{{.Dependencies.kubeadmControlPlane.spec.machineTemplate.infrastructureRef.name}}"
+    - name: infrastructureCluster
+      target:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: VSphereCluster
         selector:
           matchLabels:
             cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
         constraints:
-          - { operator: selectFirst }
+          - { operator: unique }
     - name: identityRefSecret
       target:
         apiVersion: v1
