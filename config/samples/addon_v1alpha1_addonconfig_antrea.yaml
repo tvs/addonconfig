@@ -3,9 +3,9 @@ kind: AddonConfig
 metadata:
   name: antrea-config
 spec:
-  type: antrea
+  definitionRef: antrea
   target:
-    name: my-cluster
+    name: wl-antrea
   values:
     trafficEncapMode: encap
     noSNAT: false
@@ -14,10 +14,16 @@ spec:
     tlsCipherSuites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_256_GCM_SHA384
     featureGates:
       AntreaProxy: true
-      EndpointSlice: false
+      EndpointSlice: true
       AntreaPolicy: true
       FlowExporter: false
-      Egress: false
-      NodePortLocal: false
+      Egress: true
+      NodePortLocal: true
       AntreaTraceflow: true
       NetworkPolicyStats: false
+      Multicluster: false
+      SecondaryNetwork: false
+      TrafficControl: false
+      AntreaIPAM: false
+      ServiceExternalIP: false
+      Multicast: false

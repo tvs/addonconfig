@@ -19,6 +19,7 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"text/template"
 	"time"
 
@@ -36,17 +37,28 @@ import (
 	"sigs.k8s.io/cluster-api/controllers/external"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	addonv1 "github.com/tvs/addonconfig/api/v1alpha1"
-	templatev1 "github.com/tvs/addonconfig/types/template/v1alpha1"
 	"github.com/tvs/addonconfig/util"
 	"github.com/tvs/addonconfig/util/conditions"
 )
 
 const (
-	ClusterKind       = "Cluster"
-	ClusterAPIVersion = "cluster.x-k8s.io/v1beta1"
+	ClusterKind                     = "Cluster"
+	ClusterAPIVersion               = "cluster.x-k8s.io/v1beta1"
+	DependencyConstraintUnique      = "unique"
+	DependencyConstraintSelectFirst = "selectFirst"
+	DependencyConstraintOptional    = "optional"
+	OutputResourceSecret            = "Secret"
+	OutputResourceConfigMap         = "ConfigMap"
 )
+
+type targetConstraints struct {
+	uniqueDependencyConstraint      bool
+	selectFirstDependencyConstraint bool
+	optionalDependencyConstraint    bool
+}
 
 // TODO(tvs): Extract some of this to an AddonConfigDefinition controller
 // and key off of a condition rather than rebuilding the resource every
@@ -62,8 +74,8 @@ func (r *AddonConfigReconciler) reconcileValidation(ctx context.Context, atx *ad
 
 	phases := []func(context.Context, *addonConfigContext) (ctrl.Result, error){
 		r.reconcileSchema,
-		r.reconcileSchemaValidation,
 		r.reconcileSchemaDefaulting,
+		r.reconcileSchemaValidation,
 	}
 
 	res := ctrl.Result{}
@@ -311,7 +323,12 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, atx *addonC
 
 	infraType := util.GetInfrastructureProvider(infrastructureRefAPIVersion, infrastructureRefKind)
 
-	atx.TemplateVariables.Default.Cluster = unstructuredCluster.UnstructuredContent()
+	cluster := unstructuredCluster.UnstructuredContent()
+	clusterMeta, found, err := unstructured.NestedMap(cluster, "metadata")
+	if err != nil || !found {
+		return ctrl.Result{}, errors.New("unable to find the value of the nested field metadata in the target cluster")
+	}
+	atx.TemplateVariables.Default.ClusterMeta = clusterMeta
 	atx.TemplateVariables.Default.Infrastructure = infraType
 
 	conditions.MarkTrue(atx.AddonConfig, addonv1.ValidTargetCondition)
@@ -325,66 +342,44 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 	atx.TemplateVariables.Dependencies = make(map[string]interface{}, len(atx.AddonConfigDefinition.Spec.Dependencies))
 
 	for _, dep := range atx.AddonConfigDefinition.Spec.Dependencies {
-		var obj *unstructured.Unstructured
-
-		target := dep.Target
+		var (
+			obj         *unstructured.Unstructured
+			constraints targetConstraints
+			err         error
+		)
 
 		// TODO(tvs): This should be prevented by a validating webhook
-		if target.Name != "" && target.Selector != nil {
+		if dep.Target.Name != "" && dep.Target.Selector != nil {
 			log.Info("Dependency defines a target with both a name and selector", "dependencyName", dep.Name)
 			return ctrl.Result{}, errors.New("Dependency target has both name and a label selector")
 		}
 
-		if target.Selector != nil {
-			// Render our label selector and expressions
-			ls, err := renderSelector(target.Selector, atx.TemplateVariables)
-			if err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "unable to render target selector")
+		if len(dep.Target.Constraints) >= 1 {
+			for _, constraint := range dep.Target.Constraints {
+				switch constraint.Operator {
+				case DependencyConstraintUnique:
+					constraints.uniqueDependencyConstraint = true
+				case DependencyConstraintSelectFirst:
+					constraints.selectFirstDependencyConstraint = true
+				case DependencyConstraintOptional:
+					constraints.optionalDependencyConstraint = true
+				default:
+					return ctrl.Result{}, errors.New("invalid dependency constraint operator used. Only 'unique' and 'selectFirst' allowed")
+				}
 			}
+		}
 
-			selector, err := metav1.LabelSelectorAsSelector(ls)
-			if err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
-			}
-
-			var objectList unstructured.UnstructuredList
-			objectList.SetAPIVersion(target.APIVersion)
-			objectList.SetKind(target.Kind)
-
-			if err := r.Client.List(
-				ctx,
-				&objectList,
-				client.MatchingLabelsSelector{Selector: selector},
-				client.InNamespace(atx.AddonConfig.GetNamespace()),
-			); err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "failed to list dependencies matching the specified selector")
-			}
-
-			if len(objectList.Items) == 0 {
-				return ctrl.Result{}, errors.Wrap(err, "unable to find any dependency matching the specified selector")
-			}
-			if len(objectList.Items) == 1 {
-				obj = &objectList.Items[0]
-			} else {
-				return ctrl.Result{}, errors.New("multiple dependency resources matched the label selector")
-			}
+		if dep.Target.Selector != nil {
+			obj, err = r.fetchLabeledDependency(ctx, atx, &dep, &constraints)
 		} else {
-			t, err := template.New("").Parse(target.Name)
-			if err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "Target name could not be parsed")
-			}
-			var out bytes.Buffer
-			err = t.Execute(&out, atx.TemplateVariables)
-			if err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "Rendering template failed")
-			}
-			target.Name = out.String()
+			obj, err = r.fetchNamedDependency(ctx, atx, &dep, &constraints)
+		}
 
-			objRef := &v1.ObjectReference{Kind: target.Kind, Namespace: atx.AddonConfig.GetNamespace(), Name: target.Name, APIVersion: target.APIVersion}
-			obj, err = external.Get(ctx, r.Client, objRef, atx.AddonConfig.GetNamespace())
-			if err != nil {
-				return ctrl.Result{}, errors.Wrapf(err, "unable to find object %s/%s", atx.AddonConfig.GetNamespace(), target.Name)
-			}
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if obj == nil {
+			continue
 		}
 
 		atx.TemplateVariables.Dependencies[dep.Name] = obj.UnstructuredContent()
@@ -393,11 +388,125 @@ func (r *AddonConfigReconciler) reconcileDependencies(ctx context.Context, atx *
 	return ctrl.Result{}, nil
 }
 
+func (r *AddonConfigReconciler) fetchLabeledDependency(ctx context.Context, atx *addonConfigContext, dep *addonv1.AddonConfigDefinitionDependencies, constraints *targetConstraints) (*unstructured.Unstructured, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Render our label selector and expressions
+	ls, err := renderSelector(dep.Target.Selector, atx)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to render target selector")
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(ls)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to convert rendered LabelSelector into Selector")
+	}
+
+	var objectList unstructured.UnstructuredList
+	objectList.SetAPIVersion(dep.Target.APIVersion)
+	objectList.SetKind(dep.Target.Kind)
+
+	err = r.Client.List(
+		ctx,
+		&objectList,
+		client.MatchingLabelsSelector{Selector: selector},
+		client.InNamespace(atx.AddonConfig.GetNamespace()),
+	)
+	if err != nil || len(objectList.Items) == 0 {
+		if constraints.optionalDependencyConstraint {
+			log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
+			return nil, nil
+		} else {
+			conditions.MarkFalse(atx.AddonConfig,
+				addonv1.ValidDependencyCondition,
+				addonv1.DependencyNotFound,
+				addonv1.ConditionSeverityError,
+				addonv1.DependencyNotFoundBySelectorMessage)
+			return nil, errors.Wrap(err, "unable to find any dependency matching the specified selector")
+		}
+	}
+
+	if len(dep.Target.Constraints) > 1 && constraints.uniqueDependencyConstraint && constraints.selectFirstDependencyConstraint {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.ValidDependencyCondition,
+			addonv1.DependencyConstraintFailed,
+			addonv1.ConditionSeverityError,
+			addonv1.DependencyIncorrectSetOfDependenciesMessage)
+		return nil, errors.Wrap(err, "incorrect set of dependency constraints")
+	}
+
+	if len(objectList.Items) > 1 {
+		if constraints.uniqueDependencyConstraint {
+			conditions.MarkFalse(atx.AddonConfig,
+				addonv1.ValidDependencyCondition,
+				addonv1.DependencyUniquenessNotSatisfied,
+				addonv1.ConditionSeverityError,
+				addonv1.DependencyUniquenessNotSatisfiedMessage)
+			return nil, errors.New("multiple dependency resources matched the label selector")
+		} else if constraints.selectFirstDependencyConstraint {
+			log.Info("multiple dependency resources matched the label selector")
+		}
+	}
+
+	return &objectList.Items[0], nil
+}
+
+func (r *AddonConfigReconciler) fetchNamedDependency(ctx context.Context, atx *addonConfigContext, dep *addonv1.AddonConfigDefinitionDependencies, constraints *targetConstraints) (*unstructured.Unstructured, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	t, err := template.New("").Parse(dep.Target.Name)
+	if err != nil {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.ValidDependencyCondition,
+			addonv1.DependencyTemplatingFailed,
+			addonv1.ConditionSeverityError,
+			fmt.Sprintf(addonv1.DependencyNameTemplatingFailedMessage, dep.Target.Name))
+		return nil, errors.Wrap(err, "Target name could not be parsed")
+	}
+	var out bytes.Buffer
+	if err = t.Execute(&out, atx.TemplateVariables); err != nil {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.ValidDependencyCondition,
+			addonv1.DependencyTemplatingFailed,
+			addonv1.ConditionSeverityError,
+			fmt.Sprintf(addonv1.DependencyNameTemplatingFailedMessage, dep.Target.Name))
+		return nil, errors.Wrap(err, "Rendering template failed")
+	}
+	dep.Target.Name = out.String()
+
+	objRef := &v1.ObjectReference{Kind: dep.Target.Kind, Namespace: atx.AddonConfig.GetNamespace(), Name: dep.Target.Name, APIVersion: dep.Target.APIVersion}
+	obj, err := external.Get(ctx, r.Client, objRef, atx.AddonConfig.GetNamespace())
+	if err != nil {
+		if constraints.optionalDependencyConstraint {
+			log.Info(fmt.Sprintf("optional dependency constraint defined for dependency '%q'", dep.Name))
+			return nil, nil
+		} else {
+			conditions.MarkFalse(atx.AddonConfig,
+				addonv1.ValidDependencyCondition,
+				addonv1.DependencyNotFound,
+				addonv1.ConditionSeverityError,
+				fmt.Sprintf(addonv1.DependencyNotFoundByNameMessage, dep.Target.Name))
+			return nil, errors.Wrapf(err, "unable to find object %s/%s", atx.AddonConfig.GetNamespace(), dep.Target.Name)
+		}
+	}
+
+	return obj, nil
+}
+
 func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addonConfigContext) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	funcMap := template.FuncMap{
+		"decodebase64":        util.Base64Decode,
+		"encodebase64":        util.Base64Encode,
+		"parseClusterInfo":    util.ParseClusterInfo,
+		"getClusterServer":    util.GetClusterServer,
+		"parseAddressFromURL": util.ParseAddressFromURL,
+		"parsePortFromURL":    util.ParsePortFromURL,
+	}
+
 	if atx.AddonConfigDefinition.Spec.Template != "" {
-		t, err := template.New("").Option("missingkey=error").Parse(atx.AddonConfigDefinition.Spec.Template)
+		t, err := template.New("").Funcs(funcMap).Option("missingkey=error").Parse(atx.AddonConfigDefinition.Spec.Template)
 		if err != nil {
 			conditions.MarkFalse(atx.AddonConfig,
 				addonv1.ValidTemplateCondition,
@@ -405,7 +514,7 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addo
 				addonv1.ConditionSeverityError,
 				addonv1.TemplateParseErrorMessage)
 
-			return ctrl.Result{}, errors.Wrap(err, "Unable to parse template")
+			return ctrl.Result{}, errors.Wrap(err, "Unable to parse the template")
 		}
 
 		if len(t.Templates()) > 1 {
@@ -413,7 +522,7 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addo
 				addonv1.ValidTemplateCondition,
 				addonv1.InvalidTemplate,
 				addonv1.ConditionSeverityError,
-				addonv1.TemplateDefinesSubTemplatesErrorMessage)
+				addonv1.TemplateDefinesNestedTemplatesErrorMessage)
 
 			return ctrl.Result{}, errors.Wrap(err, "Template does not support sub-templates")
 		}
@@ -428,16 +537,16 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addo
 					addonv1.ConditionSeverityError,
 					err.Error())
 
-				return ctrl.Result{}, errors.Wrap(err, "Unable to render template")
+				return ctrl.Result{}, errors.Wrap(err, "Unable to render the template")
 			}
 
 			conditions.MarkFalse(atx.AddonConfig,
 				addonv1.ValidTemplateCondition,
-				addonv1.InvalidTemplate,
+				addonv1.FailedWritingRenderedTemplate,
 				addonv1.ConditionSeverityError,
-				addonv1.TemplateRenderErrorMessage)
+				addonv1.TemplateWriteErrorMessage)
 
-			return ctrl.Result{}, errors.Wrap(err, "Unable to write template")
+			return ctrl.Result{}, errors.Wrap(err, addonv1.TemplateWriteErrorMessage)
 		}
 
 		// TODO(tvs): Write template to resultant resource
@@ -452,31 +561,160 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addo
 
 // TODO(tvs): Code up the saving element
 func (r *AddonConfigReconciler) saveRenderedTemplate(ctx context.Context, atx *addonConfigContext) (ctrl.Result, error) {
+
+	var (
+		outputResourceAPIVersion string
+		outputResourceKind       string
+		outputResourceName       string
+		outputResourceNamespace  string
+	)
+
+	log := ctrl.LoggerFrom(ctx)
+
+	outputResource := atx.AddonConfigDefinition.Spec.OutputResource
+
+	if outputResource.LocalOutput == nil && outputResource.RemoteOutput == nil {
+		log.Info("AddonConfigDefinition does not define any local or remote outputResource")
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.OutputResourceUndefined,
+			addonv1.ConditionSeverityError,
+			addonv1.OutputResourceUndefinedMessage)
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	if outputResource.LocalOutput != nil && outputResource.RemoteOutput != nil {
+		log.Info("AddonConfigDefinition can not define both local and remote outputResource")
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.MultipleOutputResourceDefined,
+			addonv1.ConditionSeverityError,
+			addonv1.MultipleOutputResourceDefinedMessage)
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	if outputResource.RemoteOutput != nil && outputResource.RemoteOutput.Namespace == "" {
+		log.Info("AddonConfigDefinition remote outputResource does not specify a namespace within the remote cluster")
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.RemoteOutputResourceNoNamespaceDefined,
+			addonv1.ConditionSeverityError,
+			addonv1.RemoteOutputResourceNoNamespaceDefinedMessage)
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	if outputResource.RemoteOutput != nil {
+		outputResourceAPIVersion = outputResource.RemoteOutput.APIVersion
+		outputResourceKind = outputResource.RemoteOutput.Kind
+		outputResourceName = outputResource.RemoteOutput.Name
+		outputResourceNamespace = outputResource.RemoteOutput.Namespace
+	} else if outputResource.LocalOutput != nil {
+		outputResourceAPIVersion = outputResource.LocalOutput.APIVersion
+		outputResourceKind = outputResource.LocalOutput.Kind
+		outputResourceName = outputResource.LocalOutput.Name
+		outputResourceNamespace = atx.AddonConfig.GetNamespace()
+	}
+
+	if outputResourceName == "" {
+		log.Info("AddonConfigDefinition does not define a outputResource")
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.OutputResourceUndefined,
+			addonv1.ConditionSeverityError,
+			addonv1.OutputResourceUndefinedMessage)
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	t, err := template.New("").Parse(outputResourceName)
+	if err != nil {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.NameTemplatingFailed,
+			addonv1.ConditionSeverityError,
+			err.Error())
+		return ctrl.Result{}, errors.Wrap(err, "Output resource name could not be parsed")
+	}
+	var out bytes.Buffer
+	err = t.Execute(&out, atx.TemplateVariables)
+	if err != nil {
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.NameTemplatingFailed,
+			addonv1.ConditionSeverityError,
+			err.Error())
+		return ctrl.Result{}, errors.Wrap(err, "Rendering template failed")
+	}
+	outputResourceName = out.String()
+
+	data := make(map[string]interface{})
+	data["values.yaml"] = atx.RenderedTemplate
+
+	outputResourceUnstructured := &unstructured.Unstructured{}
+	outputResourceUnstructured.SetAPIVersion(outputResourceAPIVersion)
+	outputResourceUnstructured.SetKind(outputResourceKind)
+	outputResourceUnstructured.SetName(outputResourceName)
+	outputResourceUnstructured.SetNamespace(outputResourceNamespace)
+
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, outputResourceUnstructured, func() error {
+		if outputResourceKind == OutputResourceSecret {
+			unstructured.SetNestedField(outputResourceUnstructured.Object, data, "stringData")
+
+		} else if outputResourceKind == OutputResourceConfigMap {
+			unstructured.SetNestedField(outputResourceUnstructured.Object, data, "data")
+		}
+		return nil
+	})
+
+	log.Info("Successfully persisted the rendered template into output resource:", "name", outputResourceName)
+
+	conditions.MarkTrue(atx.AddonConfig, addonv1.OutputResourceUpdatedCondition)
+
+	if outputResource.LocalOutput != nil {
+		outputResource.LocalOutput = &addonv1.LocalOutput{APIVersion: outputResourceAPIVersion, Kind: outputResourceKind, Name: outputResourceName}
+	} else if outputResource.RemoteOutput != nil {
+		outputResource.RemoteOutput = &addonv1.RemoteOutput{APIVersion: outputResourceAPIVersion, Kind: outputResourceKind, Name: outputResourceName}
+	}
+	atx.AddonConfig.SetOutputRef(outputResource.LocalOutput, outputResource.RemoteOutput)
+
 	return ctrl.Result{}, nil
 }
 
 // TODO(tvs): Do we need to render keys or can we get away with just the
 // values?
-func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTemplateVariables) (*metav1.LabelSelector, error) {
+func renderSelector(selector *metav1.LabelSelector, atx *addonConfigContext) (*metav1.LabelSelector, error) {
 	ls := &metav1.LabelSelector{}
 	ls.MatchLabels = make(map[string]string)
 	if len(selector.MatchLabels) > 0 || len(selector.MatchExpressions) > 0 {
 		for k, v := range selector.MatchLabels {
 			t, err := template.New("").Parse(v)
 			if err != nil {
+				conditions.MarkFalse(atx.AddonConfig,
+					addonv1.ValidDependencyCondition,
+					addonv1.DependencyTemplatingFailed,
+					addonv1.ConditionSeverityError,
+					addonv1.DependencySelectorTemplatingFailedMessage)
 				return nil, errors.Wrap(err, "Target label selector could not be parsed")
 			}
 
 			var out bytes.Buffer
-			err = t.Execute(&out, tv)
+			err = t.Execute(&out, atx.TemplateVariables)
 			if err != nil {
+				conditions.MarkFalse(atx.AddonConfig,
+					addonv1.ValidDependencyCondition,
+					addonv1.DependencyTemplatingFailed,
+					addonv1.ConditionSeverityError,
+					addonv1.DependencySelectorTemplatingFailedMessage)
 				return nil, errors.Wrap(err, "Rendering template failed")
 			}
 			ls.MatchLabels[k] = out.String()
 		}
 
 		ls.MatchExpressions = selector.MatchExpressions
-		for _, e := range selector.MatchExpressions {
+		for i, e := range selector.MatchExpressions {
 
 			if len(e.Values) > 0 {
 				rendered := make([]string, 0, len(e.Values))
@@ -485,11 +723,21 @@ func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTe
 					var out bytes.Buffer
 					t, err := template.New("").Parse(v)
 					if err != nil {
+						conditions.MarkFalse(atx.AddonConfig,
+							addonv1.ValidDependencyCondition,
+							addonv1.DependencyTemplatingFailed,
+							addonv1.ConditionSeverityError,
+							addonv1.DependencySelectorTemplatingFailedMessage)
 						return nil, errors.Wrap(err, "Target label expression's value could not be parsed")
 					}
 
-					err = t.Execute(&out, tv)
+					err = t.Execute(&out, atx.TemplateVariables)
 					if err != nil {
+						conditions.MarkFalse(atx.AddonConfig,
+							addonv1.ValidDependencyCondition,
+							addonv1.DependencyTemplatingFailed,
+							addonv1.ConditionSeverityError,
+							addonv1.DependencySelectorTemplatingFailedMessage)
 						return nil, errors.Wrap(err, "Rendering template failed")
 					}
 
@@ -497,6 +745,7 @@ func renderSelector(selector *metav1.LabelSelector, tv *templatev1.AddonConfigTe
 				}
 
 				e.Values = rendered
+				ls.MatchExpressions[i].Values = rendered
 			}
 		}
 	}

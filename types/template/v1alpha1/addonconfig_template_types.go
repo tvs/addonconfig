@@ -69,7 +69,7 @@ type AddonConfigTemplateDefaults struct {
 	// Cluster is a CAPI cluster that is targeted during template rendering.
 	// TODO(tvs): Can we dodge the CAPI import by using unstructured data
 	// instead?
-	Cluster map[string]interface{} `json:"cluster" protobuf:"bytes,1,opt,name=cluster"`
+	ClusterMeta map[string]interface{} `json:"clusterMeta" protobuf:"bytes,1,opt,name=cluster"`
 
 	// Infrastructure is a simplified infrastructure name representing the type
 	// of InfrastructureRef provided in the Cluster

@@ -22,11 +22,14 @@ package util
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
+	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +40,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sversion "k8s.io/apimachinery/pkg/version"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -370,4 +375,71 @@ func GetInfrastructureProvider(apiVersion, kind string) templatev1.Infrastructur
 	}
 
 	return templatev1.InfrastructureProviderUnknown
+}
+
+// Base64Decode decodes a base64-encoded string and returns the result
+func Base64Decode(str string) (string, error) {
+	decoded, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return "", err
+	}
+
+	return string(decoded), nil
+}
+
+// Base64Encode return the base64-encoded representation of a string
+func Base64Encode(str string) (string, error) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(str))
+	return encoded, nil
+}
+
+// ParseClusterInfo returns the default Cluster of the specified KubeConfig
+func ParseClusterInfo(kubeconfig string) (*clientcmdapi.Cluster, error) {
+	parsedKubeConfig, err := clientcmd.Load([]byte(kubeconfig))
+	if err != nil {
+		return nil, err
+	}
+
+	if parsedKubeConfig.Clusters[""] != nil {
+		return parsedKubeConfig.Clusters[""], nil
+	}
+	if parsedKubeConfig.Contexts[parsedKubeConfig.CurrentContext] != nil {
+		return parsedKubeConfig.Clusters[parsedKubeConfig.Contexts[parsedKubeConfig.CurrentContext].Cluster], nil
+	}
+	return nil, nil
+}
+
+// GetClusterServer returns the address field of the kubernetes cluster
+func GetClusterServer(clusterConfig *clientcmdapi.Cluster) string {
+	if clusterConfig != nil {
+		return clusterConfig.Server
+	}
+	return ""
+}
+
+// ParseAddressFromURL returns the host part of the url
+func ParseAddressFromURL(urlString string) (string, error) {
+	urlVal, err := url.Parse(urlString)
+	if err != nil {
+		return "", err
+	}
+	host := urlVal.Hostname()
+	if host == "" {
+		return "", err
+	}
+	return host, nil
+}
+
+// ParsePortFromURL returns the port part of the url
+func ParsePortFromURL(urlString string) (int32, error) {
+	urlVal, err := url.Parse(urlString)
+	if err != nil {
+		return 0, err
+	}
+	port, err := strconv.ParseInt(urlVal.Port(), 10, 32)
+	if err != nil {
+		return 0, err
+	}
+
+	return int32(port), nil
 }

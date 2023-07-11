@@ -3,9 +3,9 @@ kind: AddonConfig
 metadata:
   name: antrea-config-invalid
 spec:
-  type: antrea-changed
+  definitionRef: antrea-changed
   target:
-    name: my-cluster
+    name: wl-antrea
   values:
     trafficEncapMode: encap
     noSNAT: false

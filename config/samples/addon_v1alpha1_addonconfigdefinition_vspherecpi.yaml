@@ -1,0 +1,376 @@
+apiVersion: addon.tvs.io/v1alpha1
+kind: AddonConfigDefinition
+metadata:
+  name: vspherecpi
+spec:
+  dependencies:
+    - name: cluster
+      target:
+        apiVersion: cluster.x-k8s.io/v1beta1
+        kind: Cluster
+        name: "{{.Default.ClusterMeta.name}}"
+    - name: kubeadmControlPlane
+      target:
+        apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+        kind: KubeadmControlPlane
+        selector:
+          matchLabels:
+            cluster.x-k8s.io/cluster-name: "{{.Default.ClusterMeta.name}}"
+        constraints:
+          - { operator: unique }
+    - name: infrastructureTemplate
+      target:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: VSphereMachineTemplate
+        name: "{{.Dependencies.kubeadmControlPlane.spec.machineTemplate.infrastructureRef.name}}"
+    - name: infrastructureCluster
+      target:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: VSphereCluster
+        selector:
+          matchLabels:
+            cluster.x-k8s.io/cluster-name: "{{.Default.ClusterMeta.name}}"
+        constraints:
+          - { operator: unique }
+    - name: identityRefSecret
+      target:
+        apiVersion: v1
+        kind: Secret
+        name: wl-antrea
+    - name: nsxtSecret
+      target:
+        apiVersion: v1
+        kind: Secret
+        name: |
+          {{- if not (eq (index .Values.vsphereCPI "nsxt") nil) -}}
+              {{- if not (eq (index .Values.vsphereCPI.nsxt "credentialLocalObjRef") nil) }}
+                {{- .Values.vsphereCPI.nsxt.routes.routerPath -}}
+              {{- end -}}
+          {{- end -}}
+        constraints:
+          - { operator: optional }
+    - name: clusterInfoConfigMap
+      target:
+        apiVersion: v1
+        kind: ConfigMap
+        name: cluster-info
+        constraints:
+          - { operator: optional }
+  schema:
+    openAPIV3Schema:
+      type: object
+      properties:
+        antreaNSXPodRoutingEnabled:
+          default: false
+          description: Enable pod routing with Antrea NSX
+          type: boolean
+        cloudProviderExtraArgs:
+          additionalProperties: false
+          description: Extra arguments for the cloud-provider-vsphere.
+          nullable: true
+          properties:
+            tls-cipher-suites:
+              default: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+              description: External arguments for cloud provider
+              type: string
+          type: object
+        clusterAPIVersion:
+          default: cluster.x-k8s.io/v1beta1
+          description: 'Used in vsphereParavirtual mode, defines the Cluster API
+                   versions. Default: cluster.x-k8s.io/v1beta1.'
+          type: string
+        clusterKind:
+          default: Cluster
+          description: 'Used in vsphereParavirtual mode, defines the Cluster kind.
+                   Default: Cluster.'
+          type: string
+        clusterName:
+          default: ""
+          description: 'Used in vsphereParavirtual mode, defines the Cluster name.
+                   Default: ''''.'
+          type: string
+        clusterUID:
+          default: ""
+          description: 'Used in vsphereParavirtual mode, defines the Cluster UID.
+                   Default: '''''
+          type: string
+        datacenter:
+          default: null
+          description: The datacenter in which VMs are created/located
+          nullable: true
+          type: string
+        http_proxy:
+          default: null
+          description: HTTP proxy setting
+          nullable: true
+          type: string
+        https_proxy:
+          default: null
+          description: HTTPS proxy setting
+          nullable: true
+          type: string
+        image:
+          additionalProperties: false
+          properties:
+            path:
+              default: ""
+              description: The path of image
+              type: string
+            pullPolicy:
+              default: ""
+              description: The pull policy of image
+              type: string
+            repository:
+              default: ""
+              description: The repository of CPI image
+              type: string
+            tag:
+              default: ""
+              description: The image tag
+              type: string
+          type: object
+        insecureFlag:
+          default: null
+          description: The flag that disables TLS peer verification
+          nullable: true
+          type: boolean
+        ipFamily:
+          default: null
+          description: The IP family configuration
+          nullable: true
+          type: string
+        mode:
+          default: vsphereCPI
+          description: The vSphere mode. Either vsphereCPI or vsphereParavirtualCPI.
+            Default value is vsphereCPI
+          type: string
+        no_proxy:
+          default: null
+          description: No-proxy setting
+          nullable: true
+          type: string
+        nsxt:
+          additionalProperties: false
+          nullable: true
+          properties:
+            clientCertData:
+              default: ""
+              description: Client certificate data for NSX-T
+              type: string
+            clientCertKeyData:
+              default: ""
+              description: Client certificate key for NSX-T
+              type: string
+            credentialLocalObjRef:
+              type: object
+              default: null
+              nullable: true
+              properties:
+                apiGroup:
+                  default: ""
+                  type: string
+                kind:
+                  default: ""
+                  type: string
+                name:
+                  default: ""
+                  type: string
+            host:
+              default: null
+              description: The NSX-T server
+              nullable: true
+              type: string
+            insecure:
+              default: false
+              description: Insecure is to be set to true if NSX-T uses self-signed
+                cert
+              type: boolean
+            insecureFlag:
+              default: "false"
+              description: (Deprecated. For backward compatibiility. Will be replaced
+                by insecure. If both set, result is insecureFlag || insecure)
+                InsecureFlag is to be set to true if NSX-T uses self-signed cert
+              type: string
+            password:
+              default: ""
+              description: The password used to access NSX-T
+              type: string
+            podRoutingEnabled:
+              default: false
+              description: A flag that enables pod routing
+              type: boolean
+            remoteAuth:
+              default: "false"
+              description: (Deprecated. For backward compatibiility. Will be replaced
+                by removeAuthEnabled. If both set, result is remoteAuth || remoteAuthEnabled).
+                RemoteAuth is to be set to true if NSX-T uses remote authentication
+                (authentication done through the vIDM)
+              type: string
+            remoteAuthEnabled:
+              default: false
+              description: RemoteAuthEnabled is to be set to true if NSX-T uses
+                remote authentication (authentication done through the vIDM)
+              type: boolean
+            rootCAData:
+              default: ""
+              description: The certificate authority for the server certificate
+                for locally signed certificates
+              type: string
+            routes:
+              additionalProperties: false
+              properties:
+                clusterCidr:
+                  default: ""
+                  description: Cluster CIDR
+                  type: string
+                routerPath:
+                  default: ""
+                  description: NSX-T T0/T1 logical router path
+                  type: string
+              type: object
+            secretName:
+              default: cloud-provider-vsphere-nsxt-credentials
+              description: The name of secret that stores CPI configuration
+              type: string
+            secretNamespace:
+              default: kube-system
+              description: The namespace of secret that stores CPI configuration
+              type: string
+            username:
+              default: ""
+              description: The username used to access NSX-T
+              type: string
+            vmcAccessToken:
+              default: ""
+              description: VMCAccessToken is VMC access token for token based
+                authentification
+              type: string
+            vmcAuthHost:
+              default: ""
+              description: VMCAuthHost is VMC verification host for token based
+                authentification
+              type: string
+          type: object
+        password:
+          default: null
+          description: Password used to access a vSphere endpoint
+          nullable: true
+          type: string
+        region:
+          default: null
+          description: The region used by vSphere multi-AZ feature
+          nullable: true
+          type: string
+        server:
+          default: null
+          description: The IP address or FQDN of the vSphere endpoint
+          nullable: true
+          type: string
+        supervisorMasterEndpointIP:
+          default: ""
+          description: 'Used in vsphereParavirtual mode, the endpoint IP of supervisor
+                   cluster''s API server. Default: '''''
+          type: string
+        supervisorMasterPort:
+          default: ""
+          description: 'Used in vsphereParavirtual mode, the endpoint port of
+                   supervisor cluster''s API server port. Default: '''''
+          type: string
+        tlsThumbprint:
+          default: null
+          description: The cryptographic thumbprint of the vSphere endpoint's
+            certificate
+          nullable: true
+          type: string
+        username:
+          default: null
+          description: Username used to access a vSphere endpoint
+          nullable: true
+          type: string
+        vmExcludeExternalNetworkSubnetCidr:
+          default: null
+          description: Comma separated list of external network subnets to exclude
+            from node IP selection.
+          nullable: true
+          type: string
+        vmExcludeInternalNetworkSubnetCidr:
+          default: null
+          description: Comma separated list of internal network subnets to exclude
+            from node IP selection.
+          nullable: true
+          type: string
+        vmExternalNetwork:
+          default: null
+          description: External VM network name
+          nullable: true
+          type: string
+        vmInternalNetwork:
+          default: null
+          description: Internal VM network name
+          nullable: true
+          type: string
+        zone:
+          default: null
+          description: The zone used by vSphere multi-AZ feature
+          nullable: true
+          type: string
+    title: vsphere-cpi.tanzu.vmware.com.1.24.3+vmware.1-tkg.1 values schema
+    type: object
+  outputResource:
+    localOutput:
+      apiVersion: v1
+      kind: Secret
+      name: "{{.Default.ClusterMeta.name}}-vspherecpi-values"
+  template: |
+    vsphereCPI:
+      {{- if eq .Values.vsphereCPI.mode "vsphereCPI"}}
+        mode: {{.Values.vsphereCPI.mode }}
+        {{ if not (eq .Dependencies.infrastructureCluster.spec.thumbprint "") }}tlsThumbprint:{{ .Dependencies.infrastructureCluster.spec.thumbprint }}{{- else }}tlsThumbprint:""{{- end }}
+        server: {{.Dependencies.infrastructureCluster.spec.server}}
+        datacenter: {{.Dependencies.infrastructureTemplate.spec.template.spec.datacenter}}
+        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}username:{{ .Dependencies.identityRefSecret.data.username | decodebase64 }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}username:""{{ end }}
+        {{if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "Secret") }}password:{{ .Dependencies.identityRefSecret.data.password | decodebase64 }}{{- else if (eq .Dependencies.infrastructureCluster.spec.identityRef.kind "VSphereClusterIdentity") }}password:""{{ end }}
+        {{- if not (eq (index .Values.vsphereCPI "region") nil) }}region:{{ .Values.vsphereCPI.region }}{{- end }}
+        {{- if not (eq (index .Values.vsphereCPI "zone") nil) }}zone:{{ .Values.vsphereCPI.zone }}{{- end }}
+        {{ if not (eq (index .Dependencies.infrastructureCluster.spec "insecure") nil) }}insecureFlag:{{ .Dependencies.infrastructureCluster.spec.insecure }}{{- else }}insecureFlag:{{ eq .Dependencies.infrastructureCluster.spec.thumbprint "" }}{{ end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-ip-family") "") }}ipFamily:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-ip-family" }}{{- else }}ipFamily:""{{- end }}
+        {{- if not (eq (index .Values.vsphereCPI.vmNetwork "vmInternalNetwork") nil) }}vmInternalNetwork:{{  .Values.vsphereCPI.vmNetwork.vmInternalNetwork }}{{- end }}
+        {{- if not (eq (index .Values.vsphereCPI.vmNetwork "vmExternalNetwork") nil) }}vmExternalNetwork:{{  .Values.vsphereCPI.vmNetwork.vmExternalNetwork }}{{- end }}
+        vmExcludeInternalNetworkSubnetCidr: {{.Values.vsphereCPI.vmNetwork.excludeInternalSubnetCidr}}
+        vmExcludeExternalNetworkSubnetCidr: {{.Values.vsphereCPI.vmNetwork.excludeExternalSubnetCidr}}
+        cloudProviderExtraArgs:
+          tls-cipher-suites: {{.Values.vsphereCPI.tlsCipherSuites}}
+        nsxt:
+          podRoutingEnabled: {{.Values.vsphereCPI.antreaNSXPodRoutingEnabled}}
+          routes:
+            {{- if and (not (eq (index .Values.vsphereCPI "nsxt") nil)) (not (eq (index .Values.vsphereCPI.nsxt "routes") nil)) (not (eq (index .Values.vsphereCPI.nsxt.routes "routerPath") nil)) }}routerPath:{{ .Values.vsphereCPI.nsxt.routes.routerPath }}{{- end }}
+            clusterCidr: {{ index .Dependencies.cluster "spec" "clusterNetwork" "pods" "cidrBlocks" 0 }}
+          {{- if not (eq (index .Values.vsphereCPI "nsxt") nil) }}
+          {{- if not (eq (index .Values.vsphereCPI.NSXT "credentialLocalObjRef") nil) }}
+          username: {{ .Dependencies.nsxtSecret.data.username | decodebase64 }}
+          password: {{ .Dependencies.nsxtSecret.data.password | decodebase64 }}
+          {{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "host") nil) }}host:{{ .Values.vsphereCPI.nsxt.host }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "insecure") nil) }}insecure:{{ .Values.vsphereCPI.nsxt.insecure }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "remoteAuthEnabled") nil) }}remoteAuthEnabled:{{ .Values.vsphereCPI.nsxt.remoteAuthEnabled }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "vmcAccessToken") nil) }}vmcAccessToken:{{ .Values.vsphereCPI.nsxt.vmcAccessToken }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "vmcAuthHost") nil) }}vmcAuthHost:{{ .Values.vsphereCPI.nsxt.vmcAuthHost }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "clientCertKeyData") nil) }}clientCertKeyData:{{ .Values.vsphereCPI.nsxt.clientCertKeyData }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "clientCertData") nil) }}clientCertData:{{ .Values.vsphereCPI.nsxt.clientCertData }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "rootCAData") nil) }}rootCAData:{{ .Values.vsphereCPI.nsxt.rootCAData }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "secretName") nil) }}secretName:{{ .Values.vsphereCPI.nsxt.secretName }}{{- end }}
+          {{- if not (eq (index .Values.vsphereCPI.nsxt "secretNamespace") nil) }}secretNamespace:{{ .Values.vsphereCPI.nsxt.secretNamespace }}{{- end }}
+          {{- end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-http-proxy") "") }}http_proxy:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-http-proxy" }}{{- else }}http_proxy:""{{- end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-https-proxy") "") }}https_proxy:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-https-proxy" }}{{- else }}https_proxy:""{{- end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-no-proxy") "") }}no_proxy:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-no-proxy" }}{{- else }}no_proxy:""{{- end }}
+      {{- else if eq .Values.vsphereCPI.mode "vsphereParavirtualCPI"}}
+        mode: {{.Values.vsphereCPI.mode}}
+        clusterAPIVersion: {{.Dependencies.cluster.apiVersion}}
+        clusterKind: {{.Dependencies.cluster.kind}}
+        clusterName: {{.Default.ClusterMeta.name}}
+        clusterUID: {{.Default.ClusterMeta.uid}}
+        supervisorMasterEndpointIP: {{ .Dependencies.clusterInfoConfigMap.data.kubeconfig | parseClusterInfo | getClusterServer | parseAddressFromURL }}
+        supervisorMasterPort: {{ .Dependencies.clusterInfoConfigMap.data.kubeconfig | parseClusterInfo | getClusterServer | parsePortFromURL }}
+        antreaNSXPodRoutingEnabled: {{.Values.vsphereCPI.antreaNSXPodRoutingEnabled}}
+      {{- end}}

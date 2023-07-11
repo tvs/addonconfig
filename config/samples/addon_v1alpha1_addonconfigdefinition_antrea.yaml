@@ -4,22 +4,17 @@ metadata:
   name: antrea
 spec:
   dependencies:
-    - name: mySecret
-      target:
-        apiVersion: v1
-        kind: Secret
-        name: my-big-secret
-    - name: myMachineDeployment
+    - name: cluster
       target:
         apiVersion: cluster.x-k8s.io/v1beta1
-        kind: MachineDeployment
-        selector:
-          matchLabels:
-            cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
+        kind: Cluster
+        name: "{{.Default.ClusterMeta.name}}"
   schema:
     openAPIV3Schema:
       type: object
       properties:
+        serviceCIDR:
+          type: string
         trafficEncapMode:
           type: string
         noSNAT:
@@ -57,29 +52,33 @@ spec:
             NetworkPolicyStats:
               type: boolean
               default: false
-  templateTarget:
-    apiVersion: v1
-    kind: Secret
-    name: "{{.Default.Cluster.Metadata.Name}}-antrea-values"
+  outputResource:
+    localOutput:
+      apiVersion: v1
+      kind: Secret
+      name: "{{.Default.ClusterMeta.name}}-antrea-values"
   template: |
-    config.yml: | 
-      infraProvider: {{.Default.Infrastructure}}
-      antrea:
-        config:
-          myClusterName: {{.Default.Cluster.metadata.name}}
-          secretRelatedField: {{.Dependencies.mySecret.metadata.name}}}
-          mdRelatedField: {{.Dependencies.myMachineDeployment.spec.template.spec.bootstrap.configRef.name}}}
-          trafficEncapMode: {{.Values.trafficEncapMode}}
-          noSNAT: {{.Values.noSNAT}}
-          disableUdpTunnelOffload: {{.Values.disableUdpTunnelOffload}}
-          defaultMTU: {{.Values.defaultMTU}}
-          tlsCipherSuites: {{.Values.tlsCipherSuites}}
-          featureGates:
-            AntreaProxy: {{.Values.featureGates.AntreaProxy}}
-            EndpointSlice: {{.Values.featureGates.EndpointSlice}}
-            AntreaPolicy: {{.Values.featureGates.AntreaPolicy}}
-            FlowExporter: {{.Values.featureGates.FlowExporter}}
-            Egress: {{.Values.featureGates.Egress}}
-            NodePortLocal: {{.Values.featureGates.NodePortLocal}}
-            AntreaTraceflow: {{.Values.featureGates.AntreaTraceflow}}
-            NetworkPolicyStats: {{.Values.featureGates.NetworkPolicyStats}}
+    infraProvider: {{.Default.Infrastructure}}
+    antrea:
+      config:
+        {{ if and (not (eq (index .Dependencies.cluster.spec "clusterNetwork") nil)) (not (eq (index .Dependencies.cluster.spec.clusterNetwork "services") nil)) (not (eq (index .Dependencies.cluster.spec.clusterNetwork.services "cidrBlocks") nil)) }}serviceCIDR:{{index .Dependencies.cluster "spec" "clusterNetwork" "services" "cidrBlocks" 0}}{{- end }}
+        trafficEncapMode: {{.Values.trafficEncapMode}}
+        noSNAT: {{.Values.noSNAT}}
+        disableUdpTunnelOffload: {{.Values.disableUdpTunnelOffload}}
+        defaultMTU: {{.Values.defaultMTU}}
+        tlsCipherSuites: {{.Values.tlsCipherSuites}}
+        featureGates:
+          AntreaProxy: {{.Values.featureGates.AntreaProxy}}
+          EndpointSlice: {{.Values.featureGates.EndpointSlice}}
+          AntreaPolicy: {{.Values.featureGates.AntreaPolicy}}
+          FlowExporter: {{.Values.featureGates.FlowExporter}}
+          Egress: {{.Values.featureGates.Egress}}
+          NodePortLocal: {{.Values.featureGates.NodePortLocal}}
+          AntreaTraceflow: {{.Values.featureGates.AntreaTraceflow}}
+          NetworkPolicyStats: {{.Values.featureGates.NetworkPolicyStats}}
+          Multicluster: {{.Values.featureGates.Multicluster}}
+          SecondaryNetwork: {{.Values.featureGates.SecondaryNetwork}}
+          TrafficControl: {{.Values.featureGates.TrafficControl}}
+          AntreaIPAM: {{.Values.featureGates.AntreaIPAM}}
+          ServiceExternalIP: {{.Values.featureGates.ServiceExternalIP}}
+          Multicast: {{.Values.featureGates.Multicast}}
