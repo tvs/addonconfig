@@ -56,8 +56,17 @@ type Target struct {
 	//Constraints []map[string]string `json:"constraints,omitempty" protobuf:"bytes,5,opt,name=constraints"`
 }
 
-// OutputResource defines an output resource target resource version, kind and name to use when persisting resulting config into a resource.
+// OutputResource defines a local or remote output resource
 type OutputResource struct {
+	// LocalOutput used when the OutputResource for persisting resulting config should reside within the local cluster.
+	LocalOutput *LocalOutput `json:"localOutput,omitempty" protobuf:"bytes,1,opt,name=localOutput"`
+
+	// RemoteOutput used when the OutputResource for persisting resulting config should reside within the remote cluster.
+	RemoteOutput *RemoteOutput `json:"remoteOutput,omitempty" protobuf:"bytes,1,opt,name=remoteOutput"`
+}
+
+// LocalOutput defines the local output resource version, kind and name to use when persisting resulting config into a resource within the local cluster.
+type LocalOutput struct {
 	// API version of the output resource referent.
 	APIVersion string `json:"apiVersion" protobuf:"bytes,1,opt,name=apiVersion"`
 
@@ -66,6 +75,21 @@ type OutputResource struct {
 
 	// Name of the output resource referent.
 	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
+}
+
+// RemoteOutput defines the remote output resource version, kind, name and namespace to use when persisting resulting config into a resource within the remote cluster.
+type RemoteOutput struct {
+	// API version of the output resource referent.
+	APIVersion string `json:"apiVersion" protobuf:"bytes,1,opt,name=apiVersion"`
+
+	// Kind of the output resource referent.
+	Kind string `json:"kind" protobuf:"bytes,2,opt,name=kind"`
+
+	// Name of the output resource referent.
+	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
+
+	// Namespace of the output resource referent.
+	Namespace string `json:"namespace,omitempty" protobuf:"bytes,3,opt,name=namespace"`
 }
 
 // DependencyConstraint defines type for the dependency constraint object

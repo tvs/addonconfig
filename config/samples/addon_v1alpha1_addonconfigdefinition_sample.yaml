@@ -15,7 +15,7 @@ spec:
         kind: Secret
         selector:
           matchLabels:
-            cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
+            cluster.x-k8s.io/cluster-name: "{{.Default.ClusterMeta.name}}"
           matchExpressions:
             - { key: foo, operator: In, values: ["{{.Default.Infrastructure}}"] }
         constraints:
@@ -45,9 +45,10 @@ spec:
       required:
         - foo
   outputResource:
-    apiVersion: v1
-    kind: ConfigMap
-    name: "{{.Default.Cluster.metadata.name}}-sample-values"
+    localOutput:
+      apiVersion: v1
+      kind: ConfigMap
+      name: "{{.Default.ClusterMeta.name}}-sample-values"
   template: |
     config.yml: | 
       infraProvider: {{.Default.Infrastructure}}

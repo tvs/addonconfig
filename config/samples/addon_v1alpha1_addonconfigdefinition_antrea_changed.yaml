@@ -51,9 +51,10 @@ spec:
       required:
       - foo
   outputResource:
-    apiVersion: v1
-    kind: Secret
-    name: "{{.Default.Cluster.metadata.name}}-antrea-changed-values"
+    localOutput:
+      apiVersion: v1
+      kind: Secret
+      name: "{{.Default.ClusterMeta.name}}-antrea-changed-values"
   template: |
     infraProvider: {{.Default.Infrastructure}}
     antrea:

@@ -8,14 +8,14 @@ spec:
       target:
         apiVersion: cluster.x-k8s.io/v1beta1
         kind: Cluster
-        name: "{{.Default.Cluster.metadata.name}}"
+        name: "{{.Default.ClusterMeta.name}}"
     - name: kubeadmControlPlane
       target:
         apiVersion: controlplane.cluster.x-k8s.io/v1beta1
         kind: KubeadmControlPlane
         selector:
           matchLabels:
-            cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
+            cluster.x-k8s.io/cluster-name: "{{.Default.ClusterMeta.name}}"
         constraints:
           - { operator: unique }
     - name: infrastructureTemplate
@@ -29,7 +29,7 @@ spec:
         kind: VSphereCluster
         selector:
           matchLabels:
-            cluster.x-k8s.io/cluster-name: "{{.Default.Cluster.metadata.name}}"
+            cluster.x-k8s.io/cluster-name: "{{.Default.ClusterMeta.name}}"
         constraints:
           - { operator: unique }
     - name: identityRefSecret
@@ -317,9 +317,10 @@ spec:
     title: vsphere-cpi.tanzu.vmware.com.1.24.3+vmware.1-tkg.1 values schema
     type: object
   outputResource:
-    apiVersion: v1
-    kind: Secret
-    name: "{{.Default.Cluster.metadata.name}}-vspherecpi-values"
+    localOutput:
+      apiVersion: v1
+      kind: Secret
+      name: "{{.Default.ClusterMeta.name}}-vspherecpi-values"
   template: |
     vsphereCPI:
       {{- if eq .Values.vsphereCPI.mode "vsphereCPI"}}
@@ -332,7 +333,7 @@ spec:
         {{- if not (eq (index .Values.vsphereCPI "region") nil) }}region:{{ .Values.vsphereCPI.region }}{{- end }}
         {{- if not (eq (index .Values.vsphereCPI "zone") nil) }}zone:{{ .Values.vsphereCPI.zone }}{{- end }}
         {{ if not (eq (index .Dependencies.infrastructureCluster.spec "insecure") nil) }}insecureFlag:{{ .Dependencies.infrastructureCluster.spec.insecure }}{{- else }}insecureFlag:{{ eq .Dependencies.infrastructureCluster.spec.thumbprint "" }}{{ end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-ip-family") "") }}ipFamily:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-ip-family" }}{{- else }}ipFamily:""{{- end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-ip-family") "") }}ipFamily:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-ip-family" }}{{- else }}ipFamily:""{{- end }}
         {{- if not (eq (index .Values.vsphereCPI.vmNetwork "vmInternalNetwork") nil) }}vmInternalNetwork:{{  .Values.vsphereCPI.vmNetwork.vmInternalNetwork }}{{- end }}
         {{- if not (eq (index .Values.vsphereCPI.vmNetwork "vmExternalNetwork") nil) }}vmExternalNetwork:{{  .Values.vsphereCPI.vmNetwork.vmExternalNetwork }}{{- end }}
         vmExcludeInternalNetworkSubnetCidr: {{.Values.vsphereCPI.vmNetwork.excludeInternalSubnetCidr}}
@@ -343,7 +344,7 @@ spec:
           podRoutingEnabled: {{.Values.vsphereCPI.antreaNSXPodRoutingEnabled}}
           routes:
             {{- if and (not (eq (index .Values.vsphereCPI "nsxt") nil)) (not (eq (index .Values.vsphereCPI.nsxt "routes") nil)) (not (eq (index .Values.vsphereCPI.nsxt.routes "routerPath") nil)) }}routerPath:{{ .Values.vsphereCPI.nsxt.routes.routerPath }}{{- end }}
-            clusterCidr: {{ index .Default.Cluster "spec" "clusterNetwork" "pods" "cidrBlocks" 0 }}
+            clusterCidr: {{ index .Dependencies.cluster "spec" "clusterNetwork" "pods" "cidrBlocks" 0 }}
           {{- if not (eq (index .Values.vsphereCPI "nsxt") nil) }}
           {{- if not (eq (index .Values.vsphereCPI.NSXT "credentialLocalObjRef") nil) }}
           username: {{ .Dependencies.nsxtSecret.data.username | decodebase64 }}
@@ -360,15 +361,15 @@ spec:
           {{- if not (eq (index .Values.vsphereCPI.nsxt "secretName") nil) }}secretName:{{ .Values.vsphereCPI.nsxt.secretName }}{{- end }}
           {{- if not (eq (index .Values.vsphereCPI.nsxt "secretNamespace") nil) }}secretNamespace:{{ .Values.vsphereCPI.nsxt.secretNamespace }}{{- end }}
           {{- end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-http-proxy") "") }}http_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-http-proxy" }}{{- else }}http_proxy:""{{- end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-https-proxy") "") }}https_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-https-proxy" }}{{- else }}https_proxy:""{{- end }}
-        {{ if not (eq (index .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-no-proxy") "") }}no_proxy:{{ .Default.Cluster.metadata.annotations "tkg.tanzu.vmware.com/tkg-no-proxy" }}{{- else }}no_proxy:""{{- end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-http-proxy") "") }}http_proxy:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-http-proxy" }}{{- else }}http_proxy:""{{- end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-https-proxy") "") }}https_proxy:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-https-proxy" }}{{- else }}https_proxy:""{{- end }}
+        {{ if not (eq (index .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-no-proxy") "") }}no_proxy:{{ .Default.ClusterMeta.annotations "tkg.tanzu.vmware.com/tkg-no-proxy" }}{{- else }}no_proxy:""{{- end }}
       {{- else if eq .Values.vsphereCPI.mode "vsphereParavirtualCPI"}}
         mode: {{.Values.vsphereCPI.mode}}
-        clusterAPIVersion: {{.Default.Cluster.apiVersion}}
-        clusterKind: {{.Default.Cluster.kind}}
-        clusterName: {{.Default.Cluster.metadata.name}}
-        clusterUID: {{.Default.Cluster.metadata.uid}}
+        clusterAPIVersion: {{.Dependencies.cluster.apiVersion}}
+        clusterKind: {{.Dependencies.cluster.kind}}
+        clusterName: {{.Default.ClusterMeta.name}}
+        clusterUID: {{.Default.ClusterMeta.uid}}
         supervisorMasterEndpointIP: {{ .Dependencies.clusterInfoConfigMap.data.kubeconfig | parseClusterInfo | getClusterServer | parseAddressFromURL }}
         supervisorMasterPort: {{ .Dependencies.clusterInfoConfigMap.data.kubeconfig | parseClusterInfo | getClusterServer | parsePortFromURL }}
         antreaNSXPodRoutingEnabled: {{.Values.vsphereCPI.antreaNSXPodRoutingEnabled}}

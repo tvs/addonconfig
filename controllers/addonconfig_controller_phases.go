@@ -323,7 +323,12 @@ func (r *AddonConfigReconciler) reconcileTarget(ctx context.Context, atx *addonC
 
 	infraType := util.GetInfrastructureProvider(infrastructureRefAPIVersion, infrastructureRefKind)
 
-	atx.TemplateVariables.Default.Cluster = unstructuredCluster.UnstructuredContent()
+	cluster := unstructuredCluster.UnstructuredContent()
+	clusterMeta, found, err := unstructured.NestedMap(cluster, "metadata")
+	if err != nil || !found {
+		return ctrl.Result{}, errors.New("unable to find the value of the nested field metadata in the target cluster")
+	}
+	atx.TemplateVariables.Default.ClusterMeta = clusterMeta
 	atx.TemplateVariables.Default.Infrastructure = infraType
 
 	conditions.MarkTrue(atx.AddonConfig, addonv1.ValidTargetCondition)
@@ -557,11 +562,63 @@ func (r *AddonConfigReconciler) reconcileTemplate(ctx context.Context, atx *addo
 // TODO(tvs): Code up the saving element
 func (r *AddonConfigReconciler) saveRenderedTemplate(ctx context.Context, atx *addonConfigContext) (ctrl.Result, error) {
 
+	var (
+		outputResourceAPIVersion string
+		outputResourceKind       string
+		outputResourceName       string
+		outputResourceNamespace  string
+	)
+
 	log := ctrl.LoggerFrom(ctx)
 
 	outputResource := atx.AddonConfigDefinition.Spec.OutputResource
 
-	if outputResource.Name == "" {
+	if outputResource.LocalOutput == nil && outputResource.RemoteOutput == nil {
+		log.Info("AddonConfigDefinition does not define any local or remote outputResource")
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.OutputResourceUndefined,
+			addonv1.ConditionSeverityError,
+			addonv1.OutputResourceUndefinedMessage)
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	if outputResource.LocalOutput != nil && outputResource.RemoteOutput != nil {
+		log.Info("AddonConfigDefinition can not define both local and remote outputResource")
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.MultipleOutputResourceDefined,
+			addonv1.ConditionSeverityError,
+			addonv1.MultipleOutputResourceDefinedMessage)
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	if outputResource.RemoteOutput != nil && outputResource.RemoteOutput.Namespace == "" {
+		log.Info("AddonConfigDefinition remote outputResource does not specify a namespace within the remote cluster")
+		conditions.MarkFalse(atx.AddonConfig,
+			addonv1.OutputResourceUpdatedCondition,
+			addonv1.RemoteOutputResourceNoNamespaceDefined,
+			addonv1.ConditionSeverityError,
+			addonv1.RemoteOutputResourceNoNamespaceDefinedMessage)
+
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	if outputResource.RemoteOutput != nil {
+		outputResourceAPIVersion = outputResource.RemoteOutput.APIVersion
+		outputResourceKind = outputResource.RemoteOutput.Kind
+		outputResourceName = outputResource.RemoteOutput.Name
+		outputResourceNamespace = outputResource.RemoteOutput.Namespace
+	} else if outputResource.LocalOutput != nil {
+		outputResourceAPIVersion = outputResource.LocalOutput.APIVersion
+		outputResourceKind = outputResource.LocalOutput.Kind
+		outputResourceName = outputResource.LocalOutput.Name
+		outputResourceNamespace = atx.AddonConfig.GetNamespace()
+	}
+
+	if outputResourceName == "" {
 		log.Info("AddonConfigDefinition does not define a outputResource")
 		conditions.MarkFalse(atx.AddonConfig,
 			addonv1.OutputResourceUpdatedCondition,
@@ -572,7 +629,7 @@ func (r *AddonConfigReconciler) saveRenderedTemplate(ctx context.Context, atx *a
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	t, err := template.New("").Parse(outputResource.Name)
+	t, err := template.New("").Parse(outputResourceName)
 	if err != nil {
 		conditions.MarkFalse(atx.AddonConfig,
 			addonv1.OutputResourceUpdatedCondition,
@@ -591,32 +648,37 @@ func (r *AddonConfigReconciler) saveRenderedTemplate(ctx context.Context, atx *a
 			err.Error())
 		return ctrl.Result{}, errors.Wrap(err, "Rendering template failed")
 	}
-	outputResource.Name = out.String()
+	outputResourceName = out.String()
 
 	data := make(map[string]interface{})
 	data["values.yaml"] = atx.RenderedTemplate
 
 	outputResourceUnstructured := &unstructured.Unstructured{}
-	outputResourceUnstructured.SetAPIVersion(outputResource.APIVersion)
-	outputResourceUnstructured.SetKind(outputResource.Kind)
-	outputResourceUnstructured.SetName(outputResource.Name)
-	outputResourceUnstructured.SetNamespace(atx.AddonConfig.GetNamespace())
+	outputResourceUnstructured.SetAPIVersion(outputResourceAPIVersion)
+	outputResourceUnstructured.SetKind(outputResourceKind)
+	outputResourceUnstructured.SetName(outputResourceName)
+	outputResourceUnstructured.SetNamespace(outputResourceNamespace)
 
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, outputResourceUnstructured, func() error {
-		if outputResource.Kind == OutputResourceSecret {
+		if outputResourceKind == OutputResourceSecret {
 			unstructured.SetNestedField(outputResourceUnstructured.Object, data, "stringData")
 
-		} else if outputResource.Kind == OutputResourceConfigMap {
+		} else if outputResourceKind == OutputResourceConfigMap {
 			unstructured.SetNestedField(outputResourceUnstructured.Object, data, "data")
 		}
 		return nil
 	})
 
-	log.Info("Successfully persisted the rendered template into output resource:", "name", outputResource.Name)
+	log.Info("Successfully persisted the rendered template into output resource:", "name", outputResourceName)
 
 	conditions.MarkTrue(atx.AddonConfig, addonv1.OutputResourceUpdatedCondition)
 
-	atx.AddonConfig.SetOutputRef(outputResource.APIVersion, outputResource.Kind, outputResource.Name)
+	if outputResource.LocalOutput != nil {
+		outputResource.LocalOutput = &addonv1.LocalOutput{APIVersion: outputResourceAPIVersion, Kind: outputResourceKind, Name: outputResourceName}
+	} else if outputResource.RemoteOutput != nil {
+		outputResource.RemoteOutput = &addonv1.RemoteOutput{APIVersion: outputResourceAPIVersion, Kind: outputResourceKind, Name: outputResourceName}
+	}
+	atx.AddonConfig.SetOutputRef(outputResource.LocalOutput, outputResource.RemoteOutput)
 
 	return ctrl.Result{}, nil
 }
