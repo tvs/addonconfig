@@ -76,6 +76,9 @@ spec:
                           description: Name of the target referent. Mutually exclusive
                             with the selector.
                           type: string
+                        namespace:
+                          description: Namespace of the target referent.
+                          type: string
                         selector:
                           description: Label selector used to identify the referent.
                             Must only identify one resource. Mutually exclusive with

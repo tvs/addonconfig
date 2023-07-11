@@ -44,15 +44,19 @@ type Target struct {
 	// +optional
 	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
 
+	// Namespace of the target referent.
+	// +optional
+	Namespace string `json:"namespace,omitempty" protobuf:"bytes,4,opt,name=namespace"`
+
 	// Label selector used to identify the referent. Must only identify one
 	// resource.
 	// Mutually exclusive with the explicit name.
 	// +optional
-	Selector *metav1.LabelSelector `json:"selector" protobuf:"bytes,4,opt,name=selector"`
+	Selector *metav1.LabelSelector `json:"selector" protobuf:"bytes,5,opt,name=selector"`
 
 	// Constraints used to identify the constraints for the target.
 	// +optional
-	Constraints []DependencyConstraint `json:"constraints,omitempty" protobuf:"bytes,5,opt,name=constraints"`
+	Constraints []DependencyConstraint `json:"constraints,omitempty" protobuf:"bytes,6,opt,name=constraints"`
 	//Constraints []map[string]string `json:"constraints,omitempty" protobuf:"bytes,5,opt,name=constraints"`
 }
 
